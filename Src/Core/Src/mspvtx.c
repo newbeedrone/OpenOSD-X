@@ -16,6 +16,7 @@
 #include "uart_dma.h"
 #include "setting.h"
 #include "mspvtx.h"
+#include "main.h"
 
 #ifndef TARGET_NOVTX
 
@@ -164,6 +165,19 @@ uint8_t getBandLetterByIdx(uint8_t idx)
     return bandLetter[idx];
 }
 
+uint8_t getPowerLevelsCount(void)
+{
+    return SA_NUM_POWER_LEVELS;
+}
+
+uint8_t getPowerLevelByIdx(uint8_t idx)
+{
+    if (idx < SA_NUM_POWER_LEVELS) {
+        return saPowerLevelsLut[idx];
+    }
+    return saPowerLevelsLut[0];
+}
+
 /**
  * @brief Sends a simple MSP request with no payload.
  * @param opCode The MSP command ID.
@@ -271,6 +285,26 @@ void setDefaultBandChannelPower()
 }
 
 /**
+ * @brief Sends the current VTX configuration (channel and power) to the FC.
+ * This should be called when the VTX settings are changed locally (e.g., by button press).
+ */
+void sendCurrentVtxConfig()
+{
+    uint8_t payload[4];
+    uint8_t currentChannel = setting()->channel;
+    uint8_t currentPowerIndex = setting()->powerIndex;
+    
+    // Payload format: [channelIndexLow, channelIndexHigh, powerIndex(1-based), pitMode]
+    payload[0] = currentChannel & 0xFF;
+    payload[1] = (currentChannel >> 8) & 0xFF;
+    payload[2] = currentPowerIndex + 1; // Power index is 1-based in MSP
+    payload[3] = pitMode; // Use current pitMode state
+
+    msp_send_reply(MSP_SET_VTX_CONFIG, payload, sizeof(payload), MSP_V2);
+    DEBUG_PRINTF("Sent VTX config to FC: channel=%d, power=%d", currentChannel, currentPowerIndex);
+}
+
+/**
  * @brief Clears the VTX table on the FC and sets a new table size.
  */
 void clearVtxTable(void)
@@ -317,8 +351,28 @@ void mspvtx_VtxConfig(uint8_t *packet)
         if (vtxconfig->lowPowerDisarm) {
             vtxconfig->power = 0;
         }
+        
+        // Limit power based on ENABLE_MAX_POWER_UNLOCK macro
+#if ENABLE_MAX_POWER_UNLOCK
+        // When macro is enabled, max power is allowed by default (no unlock needed)
+        // No power limiting needed
+#else
+        // When macro is disabled, max power requires button unlock
+        bool maxPowerUnlocked = (setting()->max_power_unlocked == 0x5A5A);
+        if (!maxPowerUnlocked && powerIndex >= 3) {
+            powerIndex = 2;  // Limit to 100mW
+            DEBUG_PRINTF("Max power locked, limiting to index 2 (100mW)");
+        }
+#endif
+        
         setting()->powerIndex = powerIndex;
         setting()->channel = channelIndex;
+        
+        // Apply power and frequency settings immediately
+        if (channelIndex < getFreqTableSize()) {
+            setVtx(channelFreqTable[channelIndex], saPowerLevelsLut[powerIndex]);
+            DEBUG_PRINTF("Applied initial VTX settings: channel=%d, power=%d", channelIndex, powerIndex);
+        }
 
         // Check if the FC's VTX table size matches OpenVTx's definition.
         if (vtxconfig->bands == getFreqTableBands() &&
@@ -342,12 +396,36 @@ void mspvtx_VtxConfig(uint8_t *packet)
         // Betaflight power levels are 1-based, adjust for 0-based array.
         uint8_t powerIndex = vtxconfig->power > 0 ? vtxconfig->power - 1 : 0;
         
+        // Limit power based on ENABLE_MAX_POWER_UNLOCK macro
+#if ENABLE_MAX_POWER_UNLOCK
+        // When macro is enabled, max power is allowed by default (no unlock needed)
+        bool maxPowerUnlocked = true;  // Always allow max power when feature is enabled
+        bool powerLimited = false;
+#else
+        // When macro is disabled, max power requires button unlock
+        bool maxPowerUnlocked = (setting()->max_power_unlocked == 0x5A5A);
+        bool powerLimited = false;
+        if (!maxPowerUnlocked && powerIndex >= 3) {
+            powerIndex = 2;  // Limit to 100mW
+            powerLimited = true;
+            DEBUG_PRINTF("Max power locked, limiting to index 2 (100mW) (MSP request from FC: %d)", vtxconfig->power > 0 ? vtxconfig->power - 1 : 0);
+        }
+#endif
+        
         // Set power before changing frequency to avoid interference on other frequencies.
         uint8_t channelIndex = ((vtxconfig->band - 1) * 8) + (vtxconfig->channel - 1);
         if (channelIndex < getFreqTableSize()) {
             setting()->powerIndex = powerIndex;
             setting()->channel = channelIndex;
             setVtx(channelFreqTable[channelIndex], saPowerLevelsLut[powerIndex]);
+            
+            // Update LED display immediately
+            updateLedDisplay();
+            
+            // If power was limited, need to send actual setting back to FC
+            if (powerLimited) {
+                sendCurrentVtxConfig();
+            }
         }
     }
 }
@@ -529,7 +607,7 @@ void mspUpdate(void)
             // This ensures the VTX operates with EEPROM values until the first
             // valid settings are received from the FC at startup.
             if (!initFreqPacketRecived) {
-                initFreqPacketRecived = true;
+                initFreqPacketRecived = 1;
                 setVtx(channelFreqTable[setting()->channel], saPowerLevelsLut[setting()->powerIndex]);
             }
             break;

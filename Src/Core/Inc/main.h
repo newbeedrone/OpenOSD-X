@@ -135,7 +135,7 @@ void rebootDfu(void);
 
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
-
+#define ENABLE_POWER_BAND_CONTRAL    
 /* USER CODE END EM */
 
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
@@ -148,6 +148,8 @@ void Error_Handler(void);
 /* USER CODE BEGIN EFP */
 void osd_enable(uint8_t en);
 void intHsyncFallEdge(void);
+void updateLedBaseColors(void);
+void updateLedDisplay(void);
 
 /* USER CODE END EFP */
 
@@ -164,8 +166,15 @@ void intHsyncFallEdge(void);
 #define T_SWCLK_GPIO_Port GPIOA
 #define T_SWO_Pin GPIO_PIN_3
 #define T_SWO_GPIO_Port GPIOB
+#ifdef ENABLE_POWER_BAND_CONTRAL
+#define POWER_Pin GPIO_PIN_6
+#define POWER_GPIO_Port GPIOB
+#define BAND_Pin GPIO_PIN_7
+#define BAND_GPIO_Port GPIOB
+#else
 #define DEBUG_Pin GPIO_PIN_6
 #define DEBUG_GPIO_Port GPIOB
+#endif
 #define BOOT_Pin GPIO_PIN_8
 #define BOOT_GPIO_Port GPIOB
 

@@ -8,19 +8,25 @@
 #define POWER_LEVEL_LABEL_LENGTH    3
 
 
-#ifdef TARGET_BREAKOUTBOARD
 
 #define TEMP_WARNING_DEG        70  /* warning temperrature (degree) */
 #define TEMP_WARNING_POWERINDEX 1   /* warning power (vpd_table.calVpd[TEMP_WARNING_POWERINDEX]) */
 #define TEMP_DANGER_DEG         90  /* danger temparature (degree) */
 #define TEMP_DANGER_POWERINDEX  0   /* danger power (vpd_table.calVpd[TEMP_DANGER_POWERINDEX]) */
-#define VTX_DEFAULT_POWER_INDEX     3    /* Default power level index (25mW) */
+#define VTX_DEFAULT_POWER_INDEX     1    /* Default power level index (25mW) */
 #define VTX_TABLE_NEW_POWER_COUNT   4    /* vtx table power count */
 #define SA_NUM_POWER_LEVELS         VTX_TABLE_NEW_POWER_COUNT
-#define CAL_DBM_SIZE 2
+#define CAL_DBM_SIZE 4
 #define VREF_MAX_MV  2850           /* max vref voltage */
 
+/* Enable/disable max power unlock feature via button press */
+/* Set to 1: max power (400mW) is allowed by default, no button unlock needed */
+/* Set to 0: max power requires button unlock (both keys pressed for 5 seconds) */
+/* Button unlock feature is only enabled when macro is 0 */
+#ifndef ENABLE_MAX_POWER_UNLOCK
+#define ENABLE_MAX_POWER_UNLOCK    1    /* 1=default unlocked, 0=requires button unlock */
 #endif
+
 
 #ifndef TARGET_NOVTX
 typedef struct vpd_table_def {

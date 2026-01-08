@@ -14,8 +14,8 @@ const openosdx_setting_t openosdx_setting_default = {
         2,              // powerIndex
         1,              // videoFormat
         1800,           // vref_init
-        0x3c5e,          // magic
-        0,              // pad1
+        0x3c5e,         // magic
+        0,              // max_power_unlocked (default: locked)
         0               // pad2    
     };
 
@@ -37,6 +37,7 @@ void setting_print(void)
     DEBUG_PRINTF(" powerIndex:%d", openosdx_setting.powerIndex);
     DEBUG_PRINTF(" videoFormat:%d", openosdx_setting.videoFormat);
     DEBUG_PRINTF(" vref_init:%d", openosdx_setting.vref_init);
+    DEBUG_PRINTF(" max_power_unlocked:%s", openosdx_setting.max_power_unlocked == 0x5A5A ? "YES" : "NO");
     
 
 }
@@ -81,6 +82,20 @@ void setting_init(void)
                 flash_erase((uint32_t)&flash_setting, sizeof(openosdx_setting_t));
                 flash_write((uint32_t)&flash_setting, (uint8_t*)&openosdx_setting, sizeof(openosdx_setting_t));
     }
+    
+    // Check power limit at startup based on ENABLE_MAX_POWER_UNLOCK macro
+#if ENABLE_MAX_POWER_UNLOCK
+    // When macro is enabled, max power is allowed by default (no unlock needed)
+    // No need to limit power index
+#else
+    // When macro is disabled, max power requires button unlock
+    bool maxPowerUnlocked = (openosdx_setting.max_power_unlocked == 0x5A5A);
+    if (!maxPowerUnlocked && openosdx_setting.powerIndex >= 3) {
+        DEBUG_PRINTF("Max power locked, forcing powerIndex from %d to 2", openosdx_setting.powerIndex);
+        openosdx_setting.powerIndex = 2;  // Force to 100mW
+        // No immediate flash write, wait for setting_update to auto-save
+    }
+#endif
 
     DEBUG_PRINTF("vtx_init");
     setting_print();

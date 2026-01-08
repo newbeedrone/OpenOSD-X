@@ -720,7 +720,9 @@ void dmaComp2cp(DMA_HandleTypeDef *_hdma)
 {
     UNUSED(_hdma);
 
-//    HAL_GPIO_WritePin(DEBUG_GPIO_Port, DEBUG_Pin, GPIO_PIN_SET);
+#ifndef ENABLE_POWER_BAND_CONTRAL
+    HAL_GPIO_WritePin(DEBUG_GPIO_Port, DEBUG_Pin, GPIO_PIN_SET);
+#endif
 
     (videoGenFuncTable[setting()->videoFormat][videoGenCount])(&videoBuff[video_gen_line/2], video_gen_line/2, vg_vcanvas_count);
     videoGenCount++;
@@ -729,7 +731,9 @@ void dmaComp2cp(DMA_HandleTypeDef *_hdma)
         charCanvasNext();
     }
 
-//    HAL_GPIO_WritePin(DEBUG_GPIO_Port, DEBUG_Pin, GPIO_PIN_RESET);
+#ifndef ENABLE_POWER_BAND_CONTRAL
+    HAL_GPIO_WritePin(DEBUG_GPIO_Port, DEBUG_Pin, GPIO_PIN_RESET);
+#endif
 }
 
 // video gen dac interrupt half
@@ -737,13 +741,17 @@ __attribute__((section (".ccmram_code"), optimize("O2")))
 void dmaComp2ht(DMA_HandleTypeDef *_hdma)
 {
     UNUSED(_hdma);
-//    HAL_GPIO_WritePin(DEBUG_GPIO_Port, DEBUG_Pin, GPIO_PIN_SET);
+#ifndef ENABLE_POWER_BAND_CONTRAL
+    HAL_GPIO_WritePin(DEBUG_GPIO_Port, DEBUG_Pin, GPIO_PIN_SET);
+#endif
     (videoGenFuncTable[setting()->videoFormat][videoGenCount])(&videoBuff[0], video_gen_line/2, vg_vcanvas_count);
     videoGenCount++;
     if (videoGenFuncTable[setting()->videoFormat][videoGenCount] == NULL){
         videoGenCount = 0;
     }
-//    HAL_GPIO_WritePin(DEBUG_GPIO_Port, DEBUG_Pin, GPIO_PIN_RESET);
+#ifndef ENABLE_POWER_BAND_CONTRAL
+    HAL_GPIO_WritePin(DEBUG_GPIO_Port, DEBUG_Pin, GPIO_PIN_RESET);
+#endif
 }
 
 

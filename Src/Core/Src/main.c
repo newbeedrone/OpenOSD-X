@@ -22,6 +22,7 @@
 #include "stm32g4xx.h"
 
 #include "main.h"
+#include "target.h"
 #include "sys_timer.h"
 #include "msp.h"
 #include "mspvtx.h"
@@ -260,8 +261,9 @@ void SetLine(register volatile uint32_t *data, register volatile uint8_t *buf, i
 __attribute__((section (".ccmram_code"), optimize("O2")))
 void intHsyncFallEdge(void)
 {
-//    HAL_GPIO_WritePin(DEBUG_GPIO_Port, DEBUG_Pin, GPIO_PIN_SET);
-
+#ifndef ENABLE_POWER_BAND_CONTRAL
+    HAL_GPIO_WritePin(DEBUG_GPIO_Port, DEBUG_Pin, GPIO_PIN_SET);
+#endif
     if (state != STATE_DISABLE){
         volatile uint32_t uwIC1Value = TIM2->CCR1;      // down to down edge
         volatile uint32_t uwIC2Value = TIM2->CCR2;      // down to up edge;
@@ -291,8 +293,9 @@ void intHsyncFallEdge(void)
         osd_dma(detect_sync);
         sync_detect(detect_sync);
     }
-
-//    HAL_GPIO_WritePin(DEBUG_GPIO_Port, DEBUG_Pin, GPIO_PIN_RESET);
+#ifndef ENABLE_POWER_BAND_CONTRAL
+    HAL_GPIO_WritePin(DEBUG_GPIO_Port, DEBUG_Pin, GPIO_PIN_RESET);
+#endif
 }
 
 uint32_t sync_count = 0;                // for detect sync lost
@@ -560,7 +563,587 @@ void enableOSD(bool en)
 }
 
 
+#ifdef ENABLE_POWER_BAND_CONTRAL
 
+// Key state definition
+typedef enum {
+    KEY_STATE_IDLE = 0,      // Idle state
+    KEY_STATE_PRESSED,       // Pressed state
+    KEY_STATE_LONG_PRESS,    // Long press state
+} KEY_STATE;
+
+// Key event definition
+typedef enum {
+    KEY_EVENT_NONE = 0,      // No event
+    KEY_EVENT_SHORT_PRESS,   // Short press event
+    KEY_EVENT_LONG_PRESS,    // Long press event
+} KEY_EVENT;
+
+// Mode definition
+typedef enum {
+    MODE_IDLE = 0,           // Idle mode (green indicator)
+    MODE_POWER_ADJUST,       // Power adjustment mode
+    MODE_BAND_ADJUST,        // Channel adjustment mode
+} OPERATION_MODE;
+
+#define KEY_DEBOUNCE_TIME   20      // Debounce time 20ms
+#define KEY_LONG_PRESS_TIME 2000    // Long press threshold 2000ms
+#define MODE_TIMEOUT        5000    // Mode timeout 5000ms (5 seconds)
+#define LED_BLINK_COUNT     2       // Blink count
+#define LED_BLINK_ON_TIME   100     // Blink on time 100ms
+#define LED_BLINK_OFF_TIME  100     // Blink off time 100ms
+
+// LED colors for power levels (0:0mW(off), 1:25mW, 2:100mW, 3:400mW(max))
+const LED_STATE power_led_colors[4] = {LED_WHITE, LED_BLUE128, LED_GREEN128, LED_RED128};
+
+// LED colors for channels (1-8)
+const LED_STATE channel_led_colors[8] = {
+    LED_WHITE,    // Channel 1 - White
+    LED_PINK,     // Channel 2 - Pink
+    LED_CYAN,     // Channel 3 - Cyan
+    LED_YELLOW,   // Channel 4 - Yellow
+    LED_GREEN128, // Channel 5 - Green
+    LED_BLUE128,  // Channel 6 - Blue
+    LED_PURPLE,   // Channel 7 - Purple
+    LED_RED128    // Channel 8 - Red
+};
+
+// LED state variables (promoted to file scope for external updates)
+static LED_STATE led1_state = LED_GREEN128;  // LED1: controlled by band key
+static LED_STATE led2_state = LED_GREEN128;  // LED2: controlled by power key
+
+// LED base colors (colors to display in normal mode)
+static LED_STATE led1_base_color = LED_GREEN128;
+static LED_STATE led2_base_color = LED_GREEN128;
+
+/**
+ * @brief Update LED base colors according to current settings
+ * This function can be called from anywhere to sync LED states
+ */
+void updateLedBaseColors(void)
+{
+#ifndef TARGET_NOVTX
+    uint8_t currentChannel = setting()->channel;
+    uint8_t channelInBand = currentChannel % 8;
+    led1_base_color = channel_led_colors[channelInBand];
+    
+    uint8_t currentPowerIndex = setting()->powerIndex;
+    led2_base_color = power_led_colors[currentPowerIndex];
+#endif
+}
+
+/**
+ * @brief Update LED display immediately with current base colors
+ * This function can be called from anywhere to force LED update
+ */
+void updateLedDisplay(void)
+{
+#ifndef TARGET_NOVTX
+    updateLedBaseColors();
+    led1_state = led1_base_color;
+    led2_state = led2_base_color;
+    DEBUG_PRINTF("LED update: powerIndex=%d, led2_color=%d (RED=%d)", 
+                 setting()->powerIndex, led2_state, LED_RED128);
+    setLedDual(led1_state, led2_state);
+#endif
+}
+
+void handle_button_press(void)
+{
+    static uint32_t key_tick = 0;
+    static KEY_STATE power_state = KEY_STATE_IDLE;
+    static KEY_STATE band_state = KEY_STATE_IDLE;
+    static uint32_t power_press_time = 0;
+    static uint32_t band_press_time = 0;
+    static OPERATION_MODE current_mode = MODE_IDLE;
+    static uint32_t mode_last_action_time = 0;
+    
+    // LED1 blink control (for band switching)
+    static uint32_t blink_start_time = 0;
+    static bool blink_active = false;
+    static uint8_t blink_count = 2;  // Dynamic blink count (corresponds to band letter index)
+    
+    // LED off confirmation control (for long press)
+    static uint32_t led_off_start_time = 0;
+    static bool led2_off_active = false;  // LED2 off flag
+    static bool led1_off_active = false;  // LED1 off flag
+    static LED_STATE led1_restore_color = LED_GREEN128;  // LED1 restore color
+    static LED_STATE led2_restore_color = LED_GREEN128;  // LED2 restore color
+    
+    // Timeout blink control
+    static bool timeout_blink_active = false;
+    static uint32_t timeout_blink_start_time = 0;
+    static OPERATION_MODE timeout_mode = MODE_IDLE;  // Record which mode timed out
+    
+    // Max power unlock control (both keys pressed for 5 seconds)
+    // Only needed when ENABLE_MAX_POWER_UNLOCK=0 (requires button unlock)
+#if !ENABLE_MAX_POWER_UNLOCK
+    static bool both_keys_pressed = false;  // Both keys pressed flag
+    static uint32_t both_keys_press_start_time = 0;  // Both keys press start time
+    static bool unlock_blink_active = false;  // Unlock blink flag
+    static uint32_t unlock_blink_start_time = 0;  // Unlock blink start time
+    static bool waiting_keys_release = false;  // Waiting for key release flag (after unlock)
+#else
+    static bool waiting_keys_release = false;  // Always false when feature disabled (max power already unlocked)
+#endif
+    
+    uint32_t current_time = HAL_GetTick();
+
+    // Debounce detection, check every 10ms
+    if(current_time - key_tick < 10) {
+        return;
+    }
+    key_tick = current_time;
+    
+    // Check mode timeout (not during LED off or blinking)
+    if(current_mode != MODE_IDLE && !blink_active && !led1_off_active && !led2_off_active && !timeout_blink_active) {
+        if(current_time - mode_last_action_time > MODE_TIMEOUT) {
+            // Start timeout blink
+            timeout_blink_active = true;
+            timeout_blink_start_time = current_time;
+            timeout_mode = current_mode;  // Record which mode timed out
+            DEBUG_PRINTF("Mode %d timeout, starting blink", current_mode);
+        }
+    }
+    
+    // Read key states (pressed = low level)
+    GPIO_PinState power_pin = HAL_GPIO_ReadPin(POWER_GPIO_Port, POWER_Pin);
+    GPIO_PinState band_pin = HAL_GPIO_ReadPin(BAND_GPIO_Port, BAND_Pin);
+    
+    // ========== Both keys pressed detection (Max power unlock) ==========
+    // Button unlock feature is only needed when ENABLE_MAX_POWER_UNLOCK=0
+    // When ENABLE_MAX_POWER_UNLOCK=1, max power is already unlocked by default
+#if !ENABLE_MAX_POWER_UNLOCK
+    // Highest priority: detect if both keys are pressed
+    if(power_pin == GPIO_PIN_RESET && band_pin == GPIO_PIN_RESET) {
+        // Both keys pressed
+        if(!both_keys_pressed) {
+            // First detection of both keys pressed
+            both_keys_pressed = true;
+            both_keys_press_start_time = current_time;
+            DEBUG_PRINTF("Both keys pressed, waiting for unlock...");
+        } else {
+            // Held down, check if 5 seconds reached
+            uint32_t press_duration = current_time - both_keys_press_start_time;
+            if(press_duration >= 5000 && setting()->max_power_unlocked != 0x5A5A) {
+                // 5 seconds reached and not yet unlocked, perform unlock
+                setting()->max_power_unlocked = 0x5A5A;
+                DEBUG_PRINTF("Max power UNLOCKED!");
+                
+                // Start unlock blink feedback (LED2 red blink 3 times)
+                unlock_blink_active = true;
+                unlock_blink_start_time = current_time;
+                
+                // Reset both keys state and key state machines to avoid triggering other events on release
+                both_keys_pressed = false;
+                power_state = KEY_STATE_IDLE;
+                band_state = KEY_STATE_IDLE;
+                waiting_keys_release = true;  // Wait for user to release all keys
+                
+                DEBUG_PRINTF("Key states reset after unlock, waiting for keys release");
+            }
+        }
+    } else {
+        // Any key released
+        if(both_keys_pressed) {
+            // Released during both keys press, reset both keys state
+            both_keys_pressed = false;
+            // Also reset key state machines to avoid triggering single key long/short press events
+            power_state = KEY_STATE_IDLE;
+            band_state = KEY_STATE_IDLE;
+            waiting_keys_release = true;  // Wait for user to release all keys
+            DEBUG_PRINTF("Both keys released before unlock, states reset");
+        }
+        
+        // Check if all keys are released
+        if(waiting_keys_release && power_pin == GPIO_PIN_SET && band_pin == GPIO_PIN_SET) {
+            waiting_keys_release = false;
+            DEBUG_PRINTF("All keys released, ready for new input");
+        }
+    }
+#else
+    // Feature disabled, waiting_keys_release is always false
+    waiting_keys_release = false;
+#endif
+    
+    // ========== Handle POWER key ==========
+    KEY_EVENT power_event = KEY_EVENT_NONE;
+    
+    // Skip key processing if waiting for key release
+    if(!waiting_keys_release) {
+        switch(power_state) {
+                case KEY_STATE_IDLE:
+                    if(power_pin == GPIO_PIN_RESET) {
+                        DEBUG_PRINTF("Power key pressed, state -> PRESSED");
+                        power_state = KEY_STATE_PRESSED;
+                        power_press_time = current_time;
+                    }
+                    break;
+                
+            case KEY_STATE_PRESSED:
+                if(power_pin == GPIO_PIN_RESET) {
+                    if(current_time - power_press_time >= KEY_LONG_PRESS_TIME) {
+                        // Check if both keys pressed, if so don't trigger single key long press
+#if !ENABLE_MAX_POWER_UNLOCK
+                        if(band_pin == GPIO_PIN_RESET) {
+                            // Both keys pressed, wait for unlock logic, don't trigger single long press
+                            // Stay in KEY_STATE_PRESSED state
+                        } else {
+#else
+                        {
+#endif
+                            // Only power key long pressed, trigger long press event normally
+                            power_state = KEY_STATE_LONG_PRESS;
+                            power_event = KEY_EVENT_LONG_PRESS;
+                        }
+                    }
+                } else {
+                    if(current_time - power_press_time >= KEY_DEBOUNCE_TIME) {
+                        power_event = KEY_EVENT_SHORT_PRESS;
+                    }
+                    power_state = KEY_STATE_IDLE;
+                }
+                break;
+                
+            case KEY_STATE_LONG_PRESS:
+                if(power_pin != GPIO_PIN_RESET) {
+                    // Key released, wait for LED off time to end
+                    power_state = KEY_STATE_IDLE;
+                }
+                break;
+        }
+    }
+    
+    // ========== Handle BAND key ==========
+    KEY_EVENT band_event = KEY_EVENT_NONE;
+    
+    // Skip key processing if waiting for key release
+    if(!waiting_keys_release) {
+        switch(band_state) {
+                case KEY_STATE_IDLE:
+                    if(band_pin == GPIO_PIN_RESET) {
+                        band_state = KEY_STATE_PRESSED;
+                        band_press_time = current_time;
+                    }
+                    break;
+                
+            case KEY_STATE_PRESSED:
+                if(band_pin == GPIO_PIN_RESET) {
+                    if(current_time - band_press_time >= KEY_LONG_PRESS_TIME) {
+                        // Check if both keys pressed, if so don't trigger single key long press
+#if !ENABLE_MAX_POWER_UNLOCK
+                        if(power_pin == GPIO_PIN_RESET) {
+                            // Both keys pressed, wait for unlock logic, don't trigger single long press
+                            // Stay in KEY_STATE_PRESSED state
+                        } else {
+#else
+                        {
+#endif
+                            // Only band key long pressed, trigger long press event normally
+                            band_state = KEY_STATE_LONG_PRESS;
+                            band_event = KEY_EVENT_LONG_PRESS;
+                        }
+                    }
+                } else {
+                    if(current_time - band_press_time >= KEY_DEBOUNCE_TIME) {
+                        band_event = KEY_EVENT_SHORT_PRESS;
+                    }
+                    band_state = KEY_STATE_IDLE;
+                }
+                break;
+                
+            case KEY_STATE_LONG_PRESS:
+                if(band_pin != GPIO_PIN_RESET) {
+                    // Key released, wait for LED off time to end
+                    band_state = KEY_STATE_IDLE;
+                }
+                break;
+        }
+    }
+    
+    // ========== POWER key event handling (controls LED2) ==========
+    if(power_event == KEY_EVENT_LONG_PRESS && current_mode == MODE_IDLE) {
+        // Only in idle mode, long press 2s starts LED2 off for 1000ms
+#ifndef TARGET_NOVTX
+        DEBUG_PRINTF("Power key long press detected, entering power adjust mode");
+        led2_off_active = true;
+        led_off_start_time = current_time;
+        updateLedBaseColors();
+        led2_restore_color = led2_base_color;
+#endif
+        
+    } else if(power_event == KEY_EVENT_LONG_PRESS && current_mode == MODE_POWER_ADJUST) {
+        // In power adjustment mode, long press power key resets timeout (but no other action)
+        mode_last_action_time = current_time;
+        DEBUG_PRINTF("Power key long pressed in MODE_POWER_ADJUST, timeout reset");
+        
+    } else if(power_event == KEY_EVENT_SHORT_PRESS && current_mode == MODE_POWER_ADJUST) {
+        // In power adjustment mode, short press switches power
+#ifndef TARGET_NOVTX
+        DEBUG_PRINTF("Power key short press in MODE_POWER_ADJUST, switching power");
+        uint8_t currentPowerIndex = setting()->powerIndex;
+        uint8_t maxPowerLevels = getPowerLevelsCount();
+        
+        // Check max power level based on ENABLE_MAX_POWER_UNLOCK macro
+#if ENABLE_MAX_POWER_UNLOCK
+        // When macro is enabled, max power is allowed by default (no unlock needed)
+        uint8_t effectiveMaxLevel = maxPowerLevels;  // Allow all power levels including max (400mW)
+#else
+        // When macro is disabled, max power requires button unlock
+        bool maxPowerUnlocked = (setting()->max_power_unlocked == 0x5A5A);
+        uint8_t effectiveMaxLevel = maxPowerUnlocked ? maxPowerLevels : 3;  // Max index 2 (0,1,2) when locked, index 3 (400mW) requires unlock
+#endif
+        
+        // Switch to next power level (cycle)
+        currentPowerIndex++;
+        if(currentPowerIndex >= effectiveMaxLevel) {
+            currentPowerIndex = 0;
+        }
+        
+        // Update power level
+        setting()->powerIndex = currentPowerIndex;
+        uint16_t freq = getFreqByIdx(setting()->channel);
+        setVtx(freq, saPowerLevelsLut[currentPowerIndex]);
+        
+        // Update LED base colors and LED2 display
+        updateLedBaseColors();
+        led2_state = led2_base_color;
+        
+        // Notify flight controller
+        sendCurrentVtxConfig();
+        
+        mode_last_action_time = current_time;
+#if ENABLE_MAX_POWER_UNLOCK
+        DEBUG_PRINTF("Power level changed to %d (max power unlocked by default)", currentPowerIndex);
+#else
+        DEBUG_PRINTF("Power level changed to %d (max_unlocked=%d)", currentPowerIndex, maxPowerUnlocked);
+#endif
+#endif
+    } else if((power_event == KEY_EVENT_SHORT_PRESS || power_event == KEY_EVENT_LONG_PRESS) 
+              && current_mode == MODE_BAND_ADJUST) {
+        // In channel adjustment mode, pressing power key resets timeout (hints user in wrong mode)
+        mode_last_action_time = current_time;
+        DEBUG_PRINTF("Power key pressed in MODE_BAND_ADJUST, timeout reset");
+    }
+    
+    // ========== BAND key event handling (controls LED1) ==========
+    if(band_event == KEY_EVENT_LONG_PRESS) {
+        if(current_mode == MODE_BAND_ADJUST) {
+            // In channel adjustment mode, long press: switch Band Letter (A-L cycle)
+#ifndef TARGET_NOVTX
+            uint8_t currentChannel = setting()->channel;
+            uint8_t currentBand = currentChannel / 8;  // Each band has 8 channels
+            
+            // Switch to next band
+            currentBand = (currentBand + 1) % 6;  // Total 6 bands (A,B,E,F,R,L)
+            
+            // Set to first channel of new band
+            uint8_t newChannel = currentBand * 8;  // First channel
+            setting()->channel = newChannel;
+            
+            uint16_t freq = getFreqByIdx(newChannel);
+            uint8_t powerLevel = getPowerLevelByIdx(setting()->powerIndex);
+            setVtx(freq, powerLevel);
+            
+            // Start blink (LED1 white blink, count corresponds to band letter index)
+            // A=1, B=2, E=3, F=4, R=5, L=6
+            blink_active = true;
+            blink_start_time = current_time;
+            blink_count = currentBand + 1;  // Blink count = band letter index + 1
+            led1_state = LED_WHITE;  // Blink with white
+            
+            sendCurrentVtxConfig();
+            mode_last_action_time = current_time;
+            DEBUG_PRINTF("Band switched to %c (index %d), channel: %d, blink %d times", 
+                         getBandLetterByIdx(currentBand), currentBand, newChannel, blink_count);
+#endif
+        } else if(current_mode == MODE_IDLE) {
+            // Only in idle mode, first long press 2s starts LED1 off for 1000ms
+#ifndef TARGET_NOVTX
+            led1_off_active = true;
+            led_off_start_time = current_time;
+            updateLedBaseColors();
+            led1_restore_color = led1_base_color;
+#endif
+        }
+        
+    } else if(band_event == KEY_EVENT_SHORT_PRESS && current_mode == MODE_BAND_ADJUST) {
+        // In channel adjustment mode, short press switches channel within band (1-8 cycle)
+#ifndef TARGET_NOVTX
+        uint8_t currentChannel = setting()->channel;
+        uint8_t currentBand = currentChannel / 8;
+        uint8_t channelInBand = currentChannel % 8;
+        
+        // Switch to next channel within band
+        channelInBand = (channelInBand + 1) % 8;
+        uint8_t newChannel = currentBand * 8 + channelInBand;
+        
+        setting()->channel = newChannel;
+        uint16_t freq = getFreqByIdx(newChannel);
+        uint8_t powerLevel = getPowerLevelByIdx(setting()->powerIndex);
+        setVtx(freq, powerLevel);
+        
+        // Update LED base colors and LED1 display
+        updateLedBaseColors();
+        led1_state = led1_base_color;
+        
+        sendCurrentVtxConfig();
+        mode_last_action_time = current_time;
+        DEBUG_PRINTF("Channel in band changed to %d (overall: %d, Freq: %d MHz)", 
+                     channelInBand + 1, newChannel, freq);
+#endif
+    } else if((band_event == KEY_EVENT_SHORT_PRESS || band_event == KEY_EVENT_LONG_PRESS) 
+              && current_mode == MODE_POWER_ADJUST) {
+        // In power adjustment mode, pressing band key resets timeout (hints user in wrong mode)
+        mode_last_action_time = current_time;
+        DEBUG_PRINTF("Band key pressed in MODE_POWER_ADJUST, timeout reset");
+    }
+    
+    // ========== LED Control ==========
+    // Priority 0 (highest): Handle unlock blink feedback (LED2 red blink 3 times)
+    // Only needed when ENABLE_MAX_POWER_UNLOCK=0 (requires button unlock)
+#if !ENABLE_MAX_POWER_UNLOCK
+    if(unlock_blink_active) {
+        uint32_t elapsed = current_time - unlock_blink_start_time;
+        uint32_t blink_period = LED_BLINK_ON_TIME + LED_BLINK_OFF_TIME;  // 200ms per cycle
+        uint32_t phase = elapsed % blink_period;
+        
+        // 3 blinks
+        if(phase < LED_BLINK_ON_TIME) {
+            led2_state = LED_RED128;  // Red on
+        } else {
+            led2_state = LED_OFF;     // Off
+        }
+        
+        // 3 blinks completed (3 * 200ms = 600ms)
+        if(elapsed >= (blink_period * 3)) {
+            unlock_blink_active = false;
+            // Restore to current power corresponding color
+            updateLedBaseColors();
+            led2_state = led2_base_color;
+            DEBUG_PRINTF("Unlock blink completed");
+        }
+    }
+#endif
+    
+    // Priority 0.5: Handle timeout blink (1s on + 1s off = 2s total)
+#if !ENABLE_MAX_POWER_UNLOCK
+    if(timeout_blink_active && !unlock_blink_active) {
+#else
+    if(timeout_blink_active) {
+#endif
+        uint32_t elapsed = current_time - timeout_blink_start_time;
+        
+        if(elapsed < 1000) {
+            // First second: light up corresponding mode's current setting color
+#ifndef TARGET_NOVTX
+            updateLedBaseColors();  // Update to current setting colors
+            
+            if(timeout_mode == MODE_BAND_ADJUST) {
+                // Channel mode timeout: LED1 shows current channel color
+                led1_state = led1_base_color;
+                led2_state = led2_base_color;  // LED2 remains normal
+            } else if(timeout_mode == MODE_POWER_ADJUST) {
+                // Power mode timeout: LED2 shows current power color
+                led1_state = led1_base_color;  // LED1 remains normal
+                led2_state = led2_base_color;
+            }
+#endif
+        } else if(elapsed < 2000) {
+            // Second second: turn off corresponding LED
+#ifndef TARGET_NOVTX
+            updateLedBaseColors();
+            if(timeout_mode == MODE_BAND_ADJUST) {
+                // Channel mode: LED1 off, LED2 remains normal
+                led1_state = LED_OFF;
+                led2_state = led2_base_color;
+            } else if(timeout_mode == MODE_POWER_ADJUST) {
+                // Power mode: LED2 off, LED1 remains normal
+                led1_state = led1_base_color;
+                led2_state = LED_OFF;
+            }
+#endif
+        } else {
+            // After 2 seconds, end blink, restore normal display and exit mode
+            timeout_blink_active = false;
+            updateLedBaseColors();
+            led1_state = led1_base_color;
+            led2_state = led2_base_color;
+            current_mode = MODE_IDLE;
+            DEBUG_PRINTF("Timeout blink completed, mode exited");
+        }
+    }
+    
+    // Priority 1: Handle LED off confirmation (1000ms during long press)
+#if !ENABLE_MAX_POWER_UNLOCK
+    if(led2_off_active && !unlock_blink_active) {
+#else
+    if(led2_off_active) {
+#endif
+        uint32_t elapsed = current_time - led_off_start_time;
+        if(elapsed >= 1000) {
+            led2_off_active = false;
+            led2_state = led2_restore_color;
+            current_mode = MODE_POWER_ADJUST;
+            mode_last_action_time = current_time;
+        } else {
+            led2_state = LED_OFF;
+        }
+    }
+    
+    if(led1_off_active) {
+        uint32_t elapsed = current_time - led_off_start_time;
+        if(elapsed >= 1000) {
+            led1_off_active = false;
+            led1_state = led1_restore_color;
+            current_mode = MODE_BAND_ADJUST;
+            mode_last_action_time = current_time;
+        } else {
+            led1_state = LED_OFF;
+        }
+    }
+    
+    // Priority 2: Handle LED1 blink (during band switching)
+#if !ENABLE_MAX_POWER_UNLOCK
+    if(blink_active && !unlock_blink_active) {
+#else
+    if(blink_active) {
+#endif
+        uint32_t elapsed = current_time - blink_start_time;
+        uint32_t blink_period = LED_BLINK_ON_TIME + LED_BLINK_OFF_TIME;
+        uint32_t phase = elapsed % blink_period;
+        
+        if(phase < LED_BLINK_ON_TIME) {
+            led1_state = LED_WHITE;
+        } else {
+            led1_state = LED_OFF;
+        }
+        
+        if(elapsed >= (blink_period * blink_count)) {
+            blink_active = false;
+            mode_last_action_time = current_time;  // Update time when blink ends to prevent immediate timeout
+            // Restore to current channel corresponding color
+            updateLedBaseColors();
+            led1_state = led1_base_color;
+        }
+    }
+    
+    // Priority 3: Normal mode display
+#if !ENABLE_MAX_POWER_UNLOCK
+    if(current_mode == MODE_IDLE && !led1_off_active && !led2_off_active && !blink_active && !unlock_blink_active && !timeout_blink_active) {
+#else
+    if(current_mode == MODE_IDLE && !led1_off_active && !led2_off_active && !blink_active && !timeout_blink_active) {
+#endif
+        // Update and apply LED base colors
+        updateLedBaseColors();
+        led1_state = led1_base_color;
+        led2_state = led2_base_color;
+    }
+    
+    // Final LED display update
+    setLedDual(led1_state, led2_state);
+}
+#endif /* ENABLE_POWER_BAND_CONTRAL */
 
 /* USER CODE END 0 */
 
@@ -654,6 +1237,24 @@ int main(void)
     setting_init();
     uart_init();
     initLed();
+#ifdef ENABLE_POWER_BAND_CONTRAL
+    // Set LED colors on power-up based on saved channel and power
+    #ifndef TARGET_NOVTX
+        uint8_t currentChannel = setting()->channel;
+        uint8_t channelInBand = currentChannel % 8;
+        uint8_t currentPowerIndex = setting()->powerIndex;
+        
+        // LED1 displays channel color, LED2 displays power color
+        LED_STATE led1_color = channel_led_colors[channelInBand];
+        LED_STATE led2_color = power_led_colors[currentPowerIndex];
+        setLedDual(led1_color, led2_color);
+        
+        DEBUG_PRINTF("Init LED: Channel=%d (color=%d), Power=%d (color=%d)", 
+                     channelInBand+1, led1_color, currentPowerIndex, led2_color);
+    #else
+        setLed(LED_GREEN128);
+    #endif
+#endif
     msp_init();
 #ifndef TARGET_NOVTX
     initVtx();
@@ -708,6 +1309,32 @@ int main(void)
 #else
 #ifndef TARGET_NOVTX
     mspUpdate();
+    // static uint32_t diag_time = 100;
+    // if (diag_time < HAL_GetTick()){
+    //     char buf[35];
+    //     diag_time += 100;
+    //     charCanvasClear();
+
+    //     sprintf(buf,"%s", "---VIDEO---");
+    //     charCanvasWrite(1,0, (uint8_t*)buf, strlen(buf));
+    //     sprintf(buf,"LINE........%d (%s)", (int)video_line_last, VIDEO_FORMAT_STR);
+    //     charCanvasWrite(2,1, (uint8_t*)buf, strlen(buf));
+    //     sprintf(buf,"SYNC-TH.....%04dMV (%d-%d)", (pluse_level_high+pluse_level_low)/2, pluse_level_low, pluse_level_high);
+    //     charCanvasWrite(3,1, (uint8_t*)buf, strlen(buf));
+    //     sprintf(buf,"%s", "---VTX---");
+    //     charCanvasWrite(4,0, (uint8_t*)buf, strlen(buf));
+    //     sprintf(buf,"FREQ........%04dMHZ", getVtxFreq());
+    //     charCanvasWrite(5,1, (uint8_t*)buf, strlen(buf));
+    //     sprintf(buf,"VPD.........%04dMV", getVpd());
+    //     charCanvasWrite(6,1, (uint8_t*)buf, strlen(buf));
+    //     sprintf(buf,"VPD-TARGET..%04dMV", getVpdTarget());
+    //     charCanvasWrite(7,1, (uint8_t*)buf, strlen(buf));
+    //     sprintf(buf,"VREF........%04dMV", getVref());
+    //     charCanvasWrite(8,1, (uint8_t*)buf, strlen(buf));
+    //     sprintf(buf,"TEMP.........%03ld\xe", getTemp());
+    //     charCanvasWrite(9,1, (uint8_t*)buf, strlen(buf));
+    //     charCanvasDraw();
+    // }
 #endif
     uart_poll();
     
@@ -721,7 +1348,6 @@ int main(void)
 #endif
 
 #if 1
-    static LED_STATE led_state = LED_OFF;
     static uint32_t previous_time = 0;
 
     procSysTimer();
@@ -730,18 +1356,14 @@ int main(void)
     procTemp();
     procVtx();
 #endif
+#ifdef ENABLE_POWER_BAND_CONTRAL
+    handle_button_press();
+#endif
 
     uint32_t now = HAL_GetTick();
     if (now - previous_time > 1000){
         previous_time = now;
-        if (led_state == LED_OFF){
-            led_state = LED_GREEN128;
-        }else{
-            led_state = LED_OFF;
-        }
         setting_update();
-        setLed(led_state);
-        DEBUG_PRINTF("led_state=%d",led_state);
 
         DEBUG_PRINTF("%s : %s(%d)", state_str[state], VIDEO_FORMAT_STR, video_line_last);
         DEBUG_PRINTF("pluse_level %dmv(%d-%d)",(pluse_level_high+pluse_level_low)/2, pluse_level_high, pluse_level_low);
@@ -1575,7 +2197,9 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(SPI_CS_GPIO_Port, SPI_CS_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
+#ifndef ENABLE_POWER_BAND_CONTRAL
   HAL_GPIO_WritePin(DEBUG_GPIO_Port, DEBUG_Pin, GPIO_PIN_RESET);
+#endif
 
   /*Configure GPIO pin : SPI_CS_Pin */
   GPIO_InitStruct.Pin = SPI_CS_Pin;
@@ -1591,11 +2215,13 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pin : DEBUG_Pin */
+#ifndef ENABLE_POWER_BAND_CONTRAL
   GPIO_InitStruct.Pin = DEBUG_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(DEBUG_GPIO_Port, &GPIO_InitStruct);
+#endif
 
   __HAL_RCC_GPIOC_CLK_ENABLE();
   GPIO_InitStruct.Pin = GPIO_PIN_6;
@@ -1604,6 +2230,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 /* USER CODE BEGIN MX_GPIO_Init_2 */
+#ifdef ENABLE_POWER_BAND_CONTRAL
+  GPIO_InitStruct.Pin = POWER_Pin | BAND_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+#endif
 /* USER CODE END MX_GPIO_Init_2 */
 }
 

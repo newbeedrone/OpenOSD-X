@@ -154,7 +154,6 @@ void setVtx_vpd(uint16_t freq, uint16_t vpd)
     }
 }
 
-
 uint8_t db2caldbmindex(uint8_t dB)
 {
     uint8_t index;

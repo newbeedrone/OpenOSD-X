@@ -1,23 +1,27 @@
 
 #include "target.h"
 
-#ifdef TARGET_BREAKOUTBOARD
-
 const vpd_table_t vpd_table = {
     .calFreqs = {5600, 5650, 5700, 5750, 5800, 5850, 5900, 5950, 6000},
-    .calDBm = {14, 20},
+    .calDBm = {0, 14, 20, 26},  /* 0=0mW, 1=14dBm(25mW), 2=20dBm(100mW), 3=26dBm(400mW) */
     .calVpd = {
-        {1300,1330,1345,1400,1480,1590,1670,1710,1760},
-        {1910,1970,1980,2120,2270,2430,2540,2620,2750}
+        /* 0mW (0dBm) - all zeros */
+        {0, 0, 0, 0, 0, 0, 0, 0, 0},
+        /* 25mW (14dBm) */
+        {1425,1425,1425,1430,1430,1445,1465,1465,1475},     
+        /* 100mW (20dBm) */
+        {1550,1515,1515,1500,1510,1520,1665,1670,1675},
+        /* 400mW (26dBm) - estimated based on power scaling */
+        {2200,1700,1690,1690,1740,1800,2020,2300,2400}
     }
 };
 
-#define RACE_MODE                   2
-uint8_t saPowerLevelsLut[SA_NUM_POWER_LEVELS] = {1, RACE_MODE, 14, 20};
+/* Power levels: 0=0mW(off), 1=25mW, 2=100mW, 3=400mW(max, requires unlock) */
+/* dBm values: 0=0mW, 1=14dBm(25mW), 2=20dBm(100mW), 3=26dBm(400mW) */
+uint8_t saPowerLevelsLut[SA_NUM_POWER_LEVELS] = {0, 14, 20, 26};
 uint8_t saPowerLevelsLabel[SA_NUM_POWER_LEVELS * POWER_LEVEL_LABEL_LENGTH] = {'0', ' ', ' ',
-                                                                              'R', 'C', 'E',
                                                                               '2', '5', ' ',
-                                                                              '1', '0', '0'};
+                                                                              '1', '0', '0',
+                                                                              '4', '0', '0'};
 
-#endif
 
