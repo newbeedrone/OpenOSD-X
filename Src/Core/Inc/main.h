@@ -150,6 +150,8 @@ void osd_enable(uint8_t en);
 void intHsyncFallEdge(void);
 void updateLedBaseColors(void);
 void updateLedDisplay(void);
+void TIM3_PWM_UpdateFromDAC(DAC_HandleTypeDef *dac_handle, uint32_t dac_channel);
+void TIM3_PWM_UpdateFromDACVoltage(uint32_t voltage_mv);
 
 /* USER CODE END EFP */
 

@@ -57,6 +57,8 @@ uint16_t vtx_freq = 0;
 uint32_t next_state_timer = 0;
 uint32_t temperature = 0;
 VTX_STATE vtx_state = VTX_STATE_INIT;
+bool use_fixed_dac = false;        /* Flag: true = use fixed DAC, false = use VPD tracking */
+uint16_t fixed_dac_value_mv = 0;   /* Fixed DAC voltage value in mV */
 
 __attribute__((section(".vpdtable")))
 const volatile vpd_table_t adj_vpdtable;
@@ -69,6 +71,8 @@ void initVtx(void)
     target_vpd = 0;
     target_vpd_normal = 0;
     vtx_freq = 0;
+    use_fixed_dac = false;
+    fixed_dac_value_mv = 0;
 
     // Check if there is an adjustment table.
     if ( adj_vpdtable.magic[0] == 'V' && 
@@ -171,10 +175,59 @@ uint8_t db2caldbmindex(uint8_t dB)
 
 void setVtx(uint16_t freq, uint8_t dB)
 {
-    if (dB < 10){
+    bool renew = false;
+
+    if (vtx_freq != freq){
+        vtx_freq = freq;
+        rtc6705PowerAmpOff();
+        initRtc6705();
+        vtx_state = VTX_STATE_INIT_RTC6705;
+        renew = true;
+    }
+
+    /* Determine power level based on dB value and set DAC mode */
+    if (dB == 14) {  /* 25mW - use fixed DAC */
+        use_fixed_dac = true;
+        fixed_dac_value_mv = DAC_FIXED_25MW_MV;
+        target_vpd_normal = 0;
+        target_vpd = 0;
+        /* Immediately set fixed DAC value */
+        vref = fixed_dac_value_mv;
+        LL_DAC_ConvertData12RightAligned(DAC1, LL_DAC_CHANNEL_2, (uint32_t)(0xfff*vref)/3300);
+        renew = true;
+    } else if (dB == 20) {  /* 100mW - use fixed DAC */
+        use_fixed_dac = true;
+        fixed_dac_value_mv = DAC_FIXED_100MW_MV;
+        target_vpd_normal = 0;
+        target_vpd = 0;
+        /* Immediately set fixed DAC value */
+        vref = fixed_dac_value_mv;
+        LL_DAC_ConvertData12RightAligned(DAC1, LL_DAC_CHANNEL_2, (uint32_t)(0xfff*vref)/3300);
+        renew = true;
+    } else if (dB == 29) {  /* 800mW - use VPD tracking */
+        use_fixed_dac = false;
+        uint8_t vpd_index = VPD_INDEX_800MW;
+        setVtx_vpd(freq, bilinearInterpolation(freq, vpd_index));
+        renew = true;
+    } else if (dB == 26) {  /* MAX/400mW - use VPD tracking */
+        use_fixed_dac = false;
+        uint8_t vpd_index = VPD_INDEX_MAX;
+        setVtx_vpd(freq, bilinearInterpolation(freq, vpd_index));
+        renew = true;
+    } else if (dB < 10) {  /* Off or invalid - set to 0 */
+        use_fixed_dac = true;
+        fixed_dac_value_mv = 0;
+        target_vpd_normal = 0;
+        target_vpd = 0;
+        /* Immediately set DAC to 0 */
+        vref = 0;
+        LL_DAC_ConvertData12RightAligned(DAC1, LL_DAC_CHANNEL_2, 0);
         setVtx_vpd(freq, 0);
-    }else{
-        setVtx_vpd(freq, bilinearInterpolation(freq, db2caldbmindex(dB) ) );
+        renew = true;
+    }
+
+    if (renew){
+        debuglogVtx("setVtx");
     }
 }
 
@@ -200,6 +253,14 @@ uint16_t getVref(void)
 
 void vrefUpdate(void)
 {
+    /* If using fixed DAC mode, directly set the fixed DAC value */
+    if (use_fixed_dac) {
+        vref = fixed_dac_value_mv;
+        LL_DAC_ConvertData12RightAligned(DAC1, LL_DAC_CHANNEL_2, (uint32_t)(0xfff*vref)/3300);
+        return;
+    }
+
+    /* VPD tracking mode - normal PID control */
     LL_ADC_ClearFlag_EOC(ADC2);
     vpd = ( LL_ADC_REG_ReadConversionData12(ADC2) * 3300) / 65535;
     if (vpd_max < vpd){
@@ -209,30 +270,35 @@ void vrefUpdate(void)
         vpd_min = vpd;
     }
 
-    vpd_error = (int32_t)vpd - target_vpd;
-    if (vpd_error < -100){
-        DEBUG_PRINTF("vpd_error %d", vpd_error);
-        vpd_save_count = 100;
-        vref += 10;
-        //debuglogVtx();
-    }else if (vpd_error < 0){
-        vref += 1;
-    }else if (vpd_error == 0){
-        ;
-    }else if (vpd_error < 100){
-        vref -= 1;
-    }else{
-        DEBUG_PRINTF("vpd_error %d", vpd_error);
-        vpd_save_count = 100;
-        vref -= 10;
-	    //debuglogVtx();
+    /* If target VPD is 0, force vref to 0 immediately */
+    if (target_vpd == 0) {
+        vref = 0;
+    } else {
+        vpd_error = (int32_t)vpd - target_vpd;
+        if (vpd_error < -100){
+            DEBUG_PRINTF("vpd_error %d", vpd_error);
+            vpd_save_count = 100;
+            vref += 10;
+            //debuglogVtx();
+        }else if (vpd_error < 0){
+            vref += 1;
+        }else if (vpd_error == 0){
+            ;
+        }else if (vpd_error < 100){
+            vref -= 1;
+        }else{
+            DEBUG_PRINTF("vpd_error %d", vpd_error);
+            vpd_save_count = 100;
+            vref -= 10;
+            //debuglogVtx();
+        }
+        vref = (vref < 0) ? 0: vref;
+        vref = (vref > VREF_MAX_MV) ? VREF_MAX_MV: vref;
     }
-    vref = (vref < 0) ? 0: vref;
-    vref = (vref > VREF_MAX_MV) ? VREF_MAX_MV: vref;
 
     LL_DAC_ConvertData12RightAligned(DAC1, LL_DAC_CHANNEL_2, (uint32_t)(0xfff*vref)/3300);
 
-	// save vref
+	// save vref (only in VPD tracking mode)
     if (vpd_save_count != 0){
         if (--vpd_save_count == 0){
             if (temperature < TEMP_WARNING_DEG){
@@ -287,7 +353,14 @@ void procVtx(void)
         case VTX_STATE_PLL_STABLE:
             if ( (now - next_state_timer) >= PLL_STABLE_TIME_MS ){
                 rtc6705PowerAmpOn();
-                vref = setting()->vref_init;
+                /* If using fixed DAC mode, set fixed value; otherwise use VPD tracking */
+                if (use_fixed_dac) {
+                    vref = fixed_dac_value_mv;
+                } else if (target_vpd == 0) {
+                    vref = 0;
+                } else {
+                    vref = setting()->vref_init;
+                }
                 LL_DAC_ConvertData12RightAligned(DAC1, LL_DAC_CHANNEL_2, (uint32_t)(0xfff*vref)/3300);
                 vtx_state = VTX_STATE_POWER_STABLE;
                 DEBUG_PRINTF("vtx_state:VTX_STATE_POWER_STABLE");

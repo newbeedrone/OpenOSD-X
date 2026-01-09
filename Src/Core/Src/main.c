@@ -1226,9 +1226,15 @@ int main(void)
 
     HAL_DAC_MspInit(&hdac3);
     HAL_DAC_Start(&hdac3, DAC_CHANNEL_2);
+    
+    /* Initialize TIM1 and TIM2 MSP before starting TIM3 to avoid DMA conflicts */
     HAL_TIM_Base_MspInit(&htim1);
-
     HAL_TIM_Base_MspInit(&htim2);
+    
+    /* Start TIM3 PWM and initialize duty cycle based on VTX power DAC (DAC1 CH2) */
+    HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+    /* Initialize PWM duty cycle based on VTX power DAC output using macro */
+    TIM3_PWM_UPDATE_FROM_DAC(&hdac1, DAC_CHANNEL_2);
     LL_TIM_CC_EnableChannel(TIM2, LL_TIM_CHANNEL_CH1);
     LL_TIM_CC_EnableChannel(TIM2, LL_TIM_CHANNEL_CH2);
     LL_TIM_EnableIT_CC1(TIM2);
@@ -1358,6 +1364,13 @@ int main(void)
 #endif
 #ifdef ENABLE_POWER_BAND_CONTRAL
     handle_button_press();
+    /* Update TIM3 PWM duty cycle based on VTX power DAC (DAC1 CH2) output (100ms period) */
+    static uint32_t pwm_update_time = 0;
+    uint32_t pwm_now = HAL_GetTick();
+    if (pwm_now - pwm_update_time >= 100) {
+        pwm_update_time = pwm_now;
+        TIM3_PWM_UPDATE_FROM_DAC(&hdac1, DAC_CHANNEL_2);
+    }
 #endif
 
     uint32_t now = HAL_GetTick();
@@ -1968,9 +1981,9 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 1 */
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 0;
+  htim3.Init.Prescaler = 16;  /* 170MHz / (16+1) / 10000 = 1000Hz (1KHz) */
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 65535;
+  htim3.Init.Period = 10000;  /* Period = 10000 for 1KHz PWM with 0.01% duty cycle resolution */
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
@@ -2005,6 +2018,57 @@ static void MX_TIM3_Init(void)
   /* USER CODE END TIM3_Init 2 */
   HAL_TIM_MspPostInit(&htim3);
 
+}
+
+/**
+  * @brief  Update TIM3 PWM duty cycle based on VTX power DAC output (for fan control)
+  * @param  dac_handle: Pointer to DAC handle (should be hdac1 for VTX power control)
+  * @param  dac_channel: DAC channel (should be DAC_CHANNEL_2 for VTX power control, not DAC_CHANNEL_1 which is for OSD)
+  * @retval None
+  * @note   This function reads the VTX power control DAC (DAC1 CH2) to control fan speed via PWM
+  */
+void TIM3_PWM_UpdateFromDAC(DAC_HandleTypeDef *dac_handle, uint32_t dac_channel)
+{
+  uint32_t dac_value;
+  uint32_t pwm_duty;
+  
+  /* Get current DAC value */
+  dac_value = HAL_DAC_GetValue(dac_handle, dac_channel);
+  
+  /* Convert DAC value (0-4095) to PWM duty cycle (0-10000) */
+  pwm_duty = PWM_DUTY_FROM_DAC_VALUE(dac_value);
+  
+  /* Limit duty cycle to maximum */
+  if (pwm_duty > TIM3_PWM_MAX_DUTY)
+  {
+    pwm_duty = TIM3_PWM_MAX_DUTY;
+  }
+  
+  /* Update PWM duty cycle */
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, pwm_duty);
+}
+
+/**
+  * @brief  Update TIM3 PWM duty cycle based on VTX power DAC voltage in mV (for fan control)
+  * @param  voltage_mv: VTX power DAC output voltage in millivolts (0-3300)
+  * @retval None
+  * @note   This function converts VTX power control voltage to PWM duty cycle for fan speed control
+  */
+void TIM3_PWM_UpdateFromDACVoltage(uint32_t voltage_mv)
+{
+  uint32_t pwm_duty;
+  
+  /* Convert voltage (0-3300mV) to PWM duty cycle (0-10000) */
+  pwm_duty = PWM_DUTY_FROM_DAC_VOLTAGE(voltage_mv);
+  
+  /* Limit duty cycle to maximum */
+  if (pwm_duty > TIM3_PWM_MAX_DUTY)
+  {
+    pwm_duty = TIM3_PWM_MAX_DUTY;
+  }
+  
+  /* Update PWM duty cycle */
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, pwm_duty);
 }
 
 /**
