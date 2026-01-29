@@ -1231,10 +1231,12 @@ int main(void)
     HAL_TIM_Base_MspInit(&htim1);
     HAL_TIM_Base_MspInit(&htim2);
     
-    /* Start TIM3 PWM and initialize duty cycle based on VTX power DAC (DAC1 CH2) */
+    /* Start TIM3 PWM for VTX power control (replaces DAC1 CH2) */
     HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
-    /* Initialize PWM duty cycle based on VTX power DAC output using macro */
-    TIM3_PWM_UPDATE_FROM_DAC(&hdac1, DAC_CHANNEL_2);
+    /* Initialize PWM duty cycle to 0 (power off) - VTX power control now uses PWM instead of DAC */
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
+    /* Original DAC-based PWM initialization - now commented out, replaced with direct PWM control */
+    // TIM3_PWM_UPDATE_FROM_DAC(&hdac1, DAC_CHANNEL_2);
     LL_TIM_CC_EnableChannel(TIM2, LL_TIM_CHANNEL_CH1);
     LL_TIM_CC_EnableChannel(TIM2, LL_TIM_CHANNEL_CH2);
     LL_TIM_EnableIT_CC1(TIM2);
@@ -1364,13 +1366,14 @@ int main(void)
 #endif
 #ifdef ENABLE_POWER_BAND_CONTRAL
     handle_button_press();
-    /* Update TIM3 PWM duty cycle based on VTX power DAC (DAC1 CH2) output (100ms period) */
-    static uint32_t pwm_update_time = 0;
-    uint32_t pwm_now = HAL_GetTick();
-    if (pwm_now - pwm_update_time >= 100) {
-        pwm_update_time = pwm_now;
-        TIM3_PWM_UPDATE_FROM_DAC(&hdac1, DAC_CHANNEL_2);
-    }
+    /* VTX power control now uses direct PWM updates in vrefUpdate() function */
+    /* Original DAC-based PWM update - now commented out, replaced with direct PWM control in vtx.c */
+    // static uint32_t pwm_update_time = 0;
+    // uint32_t pwm_now = HAL_GetTick();
+    // if (pwm_now - pwm_update_time >= 100) {
+    //     pwm_update_time = pwm_now;
+    //     TIM3_PWM_UPDATE_FROM_DAC(&hdac1, DAC_CHANNEL_2);
+    // }
 #endif
 
     uint32_t now = HAL_GetTick();
@@ -2265,6 +2268,9 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(DEBUG_GPIO_Port, DEBUG_Pin, GPIO_PIN_RESET);
 #endif
 
+  /*Configure VTX Power Control GPIO (PA5) - Output Low */
+  HAL_GPIO_WritePin(VTX_POWER_CTRL_GPIO_Port, VTX_POWER_CTRL_Pin, GPIO_PIN_RESET);
+
   /*Configure GPIO pin : SPI_CS_Pin */
   GPIO_InitStruct.Pin = SPI_CS_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -2301,6 +2307,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 #endif
+
+  /*Configure VTX Power Control GPIO (PA5) - Push-Pull Output, Low Level */
+  GPIO_InitStruct.Pin = VTX_POWER_CTRL_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_MEDIUM;
+  HAL_GPIO_Init(VTX_POWER_CTRL_GPIO_Port, &GPIO_InitStruct);
 /* USER CODE END MX_GPIO_Init_2 */
 }
 

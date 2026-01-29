@@ -16,22 +16,20 @@
 #define VTX_DEFAULT_POWER_INDEX     0    /* Default power level index (25mW) */
 #define VTX_TABLE_NEW_POWER_COUNT   4    /* vtx table power count */
 #define SA_NUM_POWER_LEVELS         VTX_TABLE_NEW_POWER_COUNT
-#define CAL_DBM_SIZE 2              /* VPD table size: only 800mW and MAX use VPD tracking */
+#define CAL_DBM_SIZE 4              /* VPD table size: all power levels use VPD tracking */
 #define VREF_MAX_MV  3300           /* max vref voltage */
 
-/* Fixed DAC values for power levels that don't use VPD tracking */
-#define DAC_FIXED_25MW_MV    921   /* Fixed DAC voltage for 25mW power level (mV) */
-#define DAC_FIXED_100MW_MV   953   /* Fixed DAC voltage for 100mW power level (mV) */
-
-/* Power level indices */
-#define POWER_LEVEL_25MW     0      /* 25mW - uses fixed DAC */
-#define POWER_LEVEL_100MW    1      /* 100mW - uses fixed DAC */
-#define POWER_LEVEL_800MW    2      /* 800mW - uses VPD tracking (index 0 in VPD table) */
-#define POWER_LEVEL_MAX      3      /* 400mW/MAX - uses VPD tracking (index 1 in VPD table) */
+/* Power level indices - all use VPD tracking */
+#define POWER_LEVEL_25MW     0      /* 25mW - uses VPD tracking (index 0 in VPD table) */
+#define POWER_LEVEL_100MW    1      /* 100mW - uses VPD tracking (index 1 in VPD table) */
+#define POWER_LEVEL_800MW    2      /* 800mW - uses VPD tracking (index 2 in VPD table) */
+#define POWER_LEVEL_MAX      3      /* 2500mW/MAX - uses VPD tracking (index 3 in VPD table) */
 
 /* VPD table indices for power levels that use VPD tracking */
-#define VPD_INDEX_800MW      0      /* VPD table index for 800mW */
-#define VPD_INDEX_MAX        1      /* VPD table index for MAX/400mW */
+#define VPD_INDEX_25MW       0      /* VPD table index for 25mW */
+#define VPD_INDEX_100MW      1      /* VPD table index for 100mW */
+#define VPD_INDEX_800MW      2      /* VPD table index for 800mW */
+#define VPD_INDEX_MAX        3      /* VPD table index for MAX/2500mW */
 
 /* TIM3 PWM Configuration */
 #define TIM3_PWM_FREQ_HZ           1000        /* PWM frequency: 1KHz */

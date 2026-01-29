@@ -66,6 +66,25 @@ const volatile vpd_table_t adj_vpdtable;
 
 
 
+/* Helper function to update VTX power PWM based on voltage value (0-3300mV) */
+static void updateVtxPowerPWM(uint32_t voltage_mv)
+{
+    uint32_t pwm_duty;
+    
+    /* Convert voltage (0-3300mV) to PWM duty cycle (0-10000) */
+    /* Using TIM3_CH1 for VTX power control (same as fan control) */
+    pwm_duty = PWM_DUTY_FROM_DAC_VOLTAGE(voltage_mv);
+    
+    /* Limit duty cycle to maximum */
+    if (pwm_duty > TIM3_PWM_MAX_DUTY)
+    {
+        pwm_duty = TIM3_PWM_MAX_DUTY;
+    }
+    
+    /* Update PWM duty cycle for VTX power control */
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, pwm_duty);
+}
+
 void initVtx(void)
 {
     target_vpd = 0;
@@ -83,7 +102,10 @@ void initVtx(void)
     }
 
     vtx_state = VTX_STATE_INIT;
-    HAL_DAC_Start(&hdac1, DAC_CHANNEL_2);
+    /* Original DAC power control - now commented out, replaced with PWM */
+    // HAL_DAC_Start(&hdac1, DAC_CHANNEL_2);
+    /* Initialize PWM to 0 (power off) */
+    updateVtxPowerPWM(0);
     rtc6705PowerAmpOff();
     initRtc6705();
 }
@@ -185,31 +207,23 @@ void setVtx(uint16_t freq, uint8_t dB)
         renew = true;
     }
 
-    /* Determine power level based on dB value and set DAC mode */
-    if (dB == 14) {  /* 25mW - use fixed DAC */
-        use_fixed_dac = true;
-        fixed_dac_value_mv = DAC_FIXED_25MW_MV;
-        target_vpd_normal = 0;
-        target_vpd = 0;
-        /* Immediately set fixed DAC value */
-        vref = fixed_dac_value_mv;
-        LL_DAC_ConvertData12RightAligned(DAC1, LL_DAC_CHANNEL_2, (uint32_t)(0xfff*vref)/3300);
+    /* Determine power level based on dB value and set VPD tracking mode */
+    if (dB == 14) {  /* 25mW - use VPD tracking */
+        use_fixed_dac = false;
+        uint8_t vpd_index = VPD_INDEX_25MW;
+        setVtx_vpd(freq, bilinearInterpolation(freq, vpd_index));
         renew = true;
-    } else if (dB == 20) {  /* 100mW - use fixed DAC */
-        use_fixed_dac = true;
-        fixed_dac_value_mv = DAC_FIXED_100MW_MV;
-        target_vpd_normal = 0;
-        target_vpd = 0;
-        /* Immediately set fixed DAC value */
-        vref = fixed_dac_value_mv;
-        LL_DAC_ConvertData12RightAligned(DAC1, LL_DAC_CHANNEL_2, (uint32_t)(0xfff*vref)/3300);
+    } else if (dB == 20) {  /* 100mW - use VPD tracking */
+        use_fixed_dac = false;
+        uint8_t vpd_index = VPD_INDEX_100MW;
+        setVtx_vpd(freq, bilinearInterpolation(freq, vpd_index));
         renew = true;
     } else if (dB == 29) {  /* 800mW - use VPD tracking */
         use_fixed_dac = false;
         uint8_t vpd_index = VPD_INDEX_800MW;
         setVtx_vpd(freq, bilinearInterpolation(freq, vpd_index));
         renew = true;
-    } else if (dB == 26) {  /* MAX/400mW - use VPD tracking */
+    } else if (dB == 34) {  /* MAX/2500mW - use VPD tracking */
         use_fixed_dac = false;
         uint8_t vpd_index = VPD_INDEX_MAX;
         setVtx_vpd(freq, bilinearInterpolation(freq, vpd_index));
@@ -219,9 +233,11 @@ void setVtx(uint16_t freq, uint8_t dB)
         fixed_dac_value_mv = 0;
         target_vpd_normal = 0;
         target_vpd = 0;
-        /* Immediately set DAC to 0 */
+        /* Immediately set PWM to 0 */
         vref = 0;
-        LL_DAC_ConvertData12RightAligned(DAC1, LL_DAC_CHANNEL_2, 0);
+        /* Original DAC control - now commented out, replaced with PWM */
+        // LL_DAC_ConvertData12RightAligned(DAC1, LL_DAC_CHANNEL_2, 0);
+        updateVtxPowerPWM(0);
         setVtx_vpd(freq, 0);
         renew = true;
     }
@@ -253,10 +269,12 @@ uint16_t getVref(void)
 
 void vrefUpdate(void)
 {
-    /* If using fixed DAC mode, directly set the fixed DAC value */
+    /* If using fixed PWM mode, directly set the fixed PWM value */
     if (use_fixed_dac) {
         vref = fixed_dac_value_mv;
-        LL_DAC_ConvertData12RightAligned(DAC1, LL_DAC_CHANNEL_2, (uint32_t)(0xfff*vref)/3300);
+        /* Original DAC control - now commented out, replaced with PWM */
+        // LL_DAC_ConvertData12RightAligned(DAC1, LL_DAC_CHANNEL_2, (uint32_t)(0xfff*vref)/3300);
+        updateVtxPowerPWM(vref);
         return;
     }
 
@@ -296,7 +314,9 @@ void vrefUpdate(void)
         vref = (vref > VREF_MAX_MV) ? VREF_MAX_MV: vref;
     }
 
-    LL_DAC_ConvertData12RightAligned(DAC1, LL_DAC_CHANNEL_2, (uint32_t)(0xfff*vref)/3300);
+    /* Original DAC control - now commented out, replaced with PWM */
+    // LL_DAC_ConvertData12RightAligned(DAC1, LL_DAC_CHANNEL_2, (uint32_t)(0xfff*vref)/3300);
+    updateVtxPowerPWM(vref);
 
 	// save vref (only in VPD tracking mode)
     if (vpd_save_count != 0){
@@ -361,7 +381,9 @@ void procVtx(void)
                 } else {
                     vref = setting()->vref_init;
                 }
-                LL_DAC_ConvertData12RightAligned(DAC1, LL_DAC_CHANNEL_2, (uint32_t)(0xfff*vref)/3300);
+                /* Original DAC control - now commented out, replaced with PWM */
+                // LL_DAC_ConvertData12RightAligned(DAC1, LL_DAC_CHANNEL_2, (uint32_t)(0xfff*vref)/3300);
+                updateVtxPowerPWM(vref);
                 vtx_state = VTX_STATE_POWER_STABLE;
                 DEBUG_PRINTF("vtx_state:VTX_STATE_POWER_STABLE");
                 next_state_timer = now;
