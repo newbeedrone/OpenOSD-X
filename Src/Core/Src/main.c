@@ -1984,9 +1984,9 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 1 */
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 16;  /* 170MHz / (16+1) / 10000 = 1000Hz (1KHz) */
+  htim3.Init.Prescaler = TIM3_PWM_PRESCALER;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 10000;  /* Period = 10000 for 1KHz PWM with 0.01% duty cycle resolution */
+  htim3.Init.Period = TIM3_PWM_PERIOD - 1;  /* ARR = period count - 1 */
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)

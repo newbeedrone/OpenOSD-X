@@ -32,10 +32,10 @@
 #define VPD_INDEX_MAX        3      /* VPD table index for MAX/2500mW */
 
 /* TIM3 PWM Configuration */
-#define TIM3_PWM_FREQ_HZ           1000        /* PWM frequency: 1KHz */
-#define TIM3_PWM_PERIOD            10000       /* PWM period for 0.01% duty cycle resolution */
-#define TIM3_PWM_PRESCALER         16          /* Prescaler: (170MHz / (16+1) / 10000) = 1000Hz */
-#define TIM3_PWM_MAX_DUTY          TIM3_PWM_PERIOD  /* Maximum duty cycle value */
+#define TIM3_PWM_FREQ_HZ           2000        /* PWM frequency: 2kHz */
+#define TIM3_PWM_PERIOD            8500        /* PWM period for 2kHz (ARR+1), duty 0~8499 */
+#define TIM3_PWM_PRESCALER         9           /* Prescaler: 170MHz/(9+1)/8500 = 2kHz */
+#define TIM3_PWM_MAX_DUTY          8499        /* Max CCR value (ARR = 8499) */
 
 /* DAC to PWM conversion macros */
 #define DAC_MAX_VALUE              4095        /* 12-bit DAC maximum value (0xFFF) */
@@ -50,7 +50,7 @@
         uint32_t _dac_val = HAL_DAC_GetValue(dac_handle, dac_channel); \
         uint32_t _pwm_duty = PWM_DUTY_FROM_DAC_VALUE(_dac_val); \
         if (_pwm_duty > TIM3_PWM_MAX_DUTY) _pwm_duty = TIM3_PWM_MAX_DUTY; \
-        __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 10000-_pwm_duty); \
+        __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, _pwm_duty); \
     } while(0)
 
 /* Macro to update TIM3 PWM duty cycle from VTX power DAC voltage in mV (for fan control) */
@@ -58,7 +58,7 @@
     do { \
         uint32_t _pwm_duty = PWM_DUTY_FROM_DAC_VOLTAGE(mv); \
         if (_pwm_duty > TIM3_PWM_MAX_DUTY) _pwm_duty = TIM3_PWM_MAX_DUTY; \
-        __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 10000-_pwm_duty); \
+        __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, _pwm_duty); \
     } while(0)
 
 /* Macro to set VTX power DAC value and automatically update TIM3 PWM for fan control (replaces HAL_DAC_SetValue) */
@@ -74,7 +74,7 @@
 /* Set to 0: max power requires button unlock (both keys pressed for 5 seconds) */
 /* Button unlock feature is only enabled when macro is 0 */
 #ifndef ENABLE_MAX_POWER_UNLOCK
-#define ENABLE_MAX_POWER_UNLOCK    1    /* 1=default unlocked, 0=requires button unlock */
+#define ENABLE_MAX_POWER_UNLOCK    0    /* 1=default unlocked, 0=requires button unlock */
 #endif
 
 
