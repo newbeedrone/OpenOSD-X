@@ -180,9 +180,9 @@ void TIM3_PWM_UpdateFromDACVoltage(uint32_t voltage_mv);
 #define BOOT_Pin GPIO_PIN_8
 #define BOOT_GPIO_Port GPIOB
 
-/* VTX Power Control GPIO (PA5, replaces DAC1 CH2) */
-#define VTX_POWER_CTRL_Pin GPIO_PIN_5
-#define VTX_POWER_CTRL_GPIO_Port GPIOA
+/* Fan control GPIO (PA5) - ON when 800mW+ or MCU temp >= 90°C */
+#define FAN_CTRL_Pin         GPIO_PIN_5
+#define FAN_CTRL_GPIO_Port  GPIOA
 
 #define BLK 0x138800ed  // VINP3
 #define WHI 0x138800e1  // VINP0

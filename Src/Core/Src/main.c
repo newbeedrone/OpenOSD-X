@@ -116,7 +116,7 @@ static void MX_ADC1_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_TIM16_Init(void);
 /* USER CODE BEGIN PFP */
-
+static void updateFanControl(void);
 
 #define VIDEO_FORMAT_STR    ((setting()->videoFormat == VIDEO_PAL) ? "PAL" : "NTSC")
 
@@ -1362,6 +1362,7 @@ int main(void)
     sync_proc();
 #ifndef TARGET_NOVTX
     procTemp();
+    updateFanControl();  /* Fan ON at 800mW+ or when MCU temp >= 90°C */
     procVtx();
 #endif
 #ifdef ENABLE_POWER_BAND_CONTRAL
@@ -2268,8 +2269,8 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(DEBUG_GPIO_Port, DEBUG_Pin, GPIO_PIN_RESET);
 #endif
 
-  /*Configure VTX Power Control GPIO (PA5) - Output Low */
-  HAL_GPIO_WritePin(VTX_POWER_CTRL_GPIO_Port, VTX_POWER_CTRL_Pin, GPIO_PIN_RESET);
+  /*Configure Fan control GPIO (PA5) - active-low: SET=fan off, RESET=fan on; init OFF */
+  HAL_GPIO_WritePin(FAN_CTRL_GPIO_Port, FAN_CTRL_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin : SPI_CS_Pin */
   GPIO_InitStruct.Pin = SPI_CS_Pin;
@@ -2308,17 +2309,22 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 #endif
 
-  /*Configure VTX Power Control GPIO (PA5) - Push-Pull Output, Low Level */
-  GPIO_InitStruct.Pin = VTX_POWER_CTRL_Pin;
+  /*Configure Fan control GPIO (PA5) - Push-Pull Output, Low Level */
+  GPIO_InitStruct.Pin = FAN_CTRL_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_MEDIUM;
-  HAL_GPIO_Init(VTX_POWER_CTRL_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(FAN_CTRL_GPIO_Port, &GPIO_InitStruct);
 /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
-
+/** Update fan GPIO: ON when 800mW+ or MCU temp >= 90°C, else OFF (active-low: RESET=ON, SET=OFF) */
+static void updateFanControl(void)
+{
+    bool fan_on = (setting()->powerIndex >= POWER_LEVEL_800MW) || (getTemp() >= TEMP_DANGER_DEG);
+    HAL_GPIO_WritePin(FAN_CTRL_GPIO_Port, FAN_CTRL_Pin, fan_on ? GPIO_PIN_RESET : GPIO_PIN_SET);
+}
 /* USER CODE END 4 */
 
 /**
