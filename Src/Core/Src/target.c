@@ -3,25 +3,25 @@
 
 const vpd_table_t vpd_table = {
     .calFreqs = {5600, 5650, 5700, 5750, 5800, 5850, 5900, 5950, 6000},
-    .calDBm = {14, 20, 29, 34},  /* 0=14dBm(25mW), 1=20dBm(100mW), 2=29dBm(800mW), 3=34dBm(2500mW/MAX) */
+    .calDBm = {0, 14, 20, 26},  /* 0=0dBm(0mW/off), 1=14dBm(25mW), 2=20dBm(100mW), 3=26dBm(400mW) */
     .calVpd = {
-        /* 25mW (14dBm) - VPD tracked */
+        /* 0mW (off) - VPD=0 */
         {0, 0, 0, 0, 0, 0, 0, 0, 0},
+        /* 25mW (14dBm) - VPD tracked */
+        {135, 140, 155, 175, 200, 230, 270, 320, 365},
         /* 100mW (20dBm) - VPD tracked */
-        {575, 555, 535, 525, 515, 515, 515, 500, 495},
-        /* 800mW (29dBm) - VPD tracked */
-        {885, 865, 845, 835, 825, 825, 825, 810, 805},
-        /* 2500mW (34dBm/MAX) - VPD tracked */
-        {1400, 1400, 1400, 1400, 1400, 1400, 1400, 1400, 1400}
+        {235, 245, 270, 295, 340, 380, 425, 480, 540},
+        /* 400mW (26dBm) - VPD tracked */
+        {342, 362, 400, 450, 515, 590, 680, 780, 860}
     }
 };
 
-/* Power levels: 0=25mW(VPD), 1=100mW(VPD), 2=800mW(VPD), 3=2500mW/MAX(VPD, requires unlock) */
-/* dBm values: 0=14dBm(25mW), 1=20dBm(100mW), 2=29dBm(800mW), 3=34dBm(2500mW/MAX) */
-uint8_t saPowerLevelsLut[SA_NUM_POWER_LEVELS] = {14, 20, 29, 34};
-uint8_t saPowerLevelsLabel[SA_NUM_POWER_LEVELS * POWER_LEVEL_LABEL_LENGTH] = {'2', '5', ' ',
+/* Power levels: 0=0mW(off), 1=25mW(VPD), 2=100mW(VPD), 3=400mW(VPD, requires unlock) */
+/* dBm values: 0=0(off), 1=14dBm(25mW), 2=20dBm(100mW), 3=26dBm(400mW) */
+uint8_t saPowerLevelsLut[SA_NUM_POWER_LEVELS] = {0, 14, 20, 26};
+uint8_t saPowerLevelsLabel[SA_NUM_POWER_LEVELS * POWER_LEVEL_LABEL_LENGTH] = {'0', ' ', ' ',
+                                                                              '2', '5', ' ',
                                                                               '1', '0', '0',
-                                                                              '8', '0', '0',
-                                                                              'M', 'A', 'X'};
+                                                                              '4', '0', '0'};
 
 

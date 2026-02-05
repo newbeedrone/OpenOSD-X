@@ -12,24 +12,26 @@
 #define TEMP_WARNING_DEG        70  /* warning temperrature (degree) */
 #define TEMP_WARNING_POWERINDEX VPD_INDEX_MAX   /* warning power (vpd_table.calVpd[TEMP_WARNING_POWERINDEX]) - use MAX */
 #define TEMP_DANGER_DEG         90  /* danger temparature (degree) */
-#define TEMP_DANGER_POWERINDEX  VPD_INDEX_800MW /* danger power (vpd_table.calVpd[TEMP_DANGER_POWERINDEX]) - use 800mW */
-#define VTX_DEFAULT_POWER_INDEX     0    /* Default power level index (25mW) */
+#define TEMP_DANGER_POWERINDEX  VPD_INDEX_400MW /* danger power (vpd_table.calVpd[TEMP_DANGER_POWERINDEX]) - use 400mW */
+#define VTX_DEFAULT_POWER_INDEX     1    /* Default power level index (25mW) */
 #define VTX_TABLE_NEW_POWER_COUNT   4    /* vtx table power count */
 #define SA_NUM_POWER_LEVELS         VTX_TABLE_NEW_POWER_COUNT
 #define CAL_DBM_SIZE 4              /* VPD table size: all power levels use VPD tracking */
 #define VREF_MAX_MV  3300           /* max vref voltage */
 
 /* Power level indices - all use VPD tracking */
-#define POWER_LEVEL_25MW     0      /* 25mW - uses VPD tracking (index 0 in VPD table) */
-#define POWER_LEVEL_100MW    1      /* 100mW - uses VPD tracking (index 1 in VPD table) */
-#define POWER_LEVEL_800MW    2      /* 800mW - uses VPD tracking (index 2 in VPD table) */
-#define POWER_LEVEL_MAX      3      /* 2500mW/MAX - uses VPD tracking (index 3 in VPD table) */
+#define POWER_LEVEL_0MW      0      /* 0mW (off) - index 0 in power table */
+#define POWER_LEVEL_25MW     1      /* 25mW - uses VPD tracking (index 1 in VPD table) */
+#define POWER_LEVEL_100MW    2      /* 100mW - uses VPD tracking (index 2 in VPD table) */
+#define POWER_LEVEL_400MW    3      /* 400mW - uses VPD tracking (index 3 in VPD table) */
+#define POWER_LEVEL_MAX      POWER_LEVEL_400MW  /* alias for max power */
 
 /* VPD table indices for power levels that use VPD tracking */
-#define VPD_INDEX_25MW       0      /* VPD table index for 25mW */
-#define VPD_INDEX_100MW      1      /* VPD table index for 100mW */
-#define VPD_INDEX_800MW      2      /* VPD table index for 800mW */
-#define VPD_INDEX_MAX        3      /* VPD table index for MAX/2500mW */
+#define VPD_INDEX_0MW        0      /* VPD table index for 0mW (off) */
+#define VPD_INDEX_25MW       1      /* VPD table index for 25mW */
+#define VPD_INDEX_100MW      2      /* VPD table index for 100mW */
+#define VPD_INDEX_400MW      3      /* VPD table index for 400mW */
+#define VPD_INDEX_MAX        VPD_INDEX_400MW    /* alias for max power */
 
 /* TIM3 PWM Configuration */
 #define TIM3_PWM_FREQ_HZ           2000        /* PWM frequency: 2kHz */
@@ -74,7 +76,7 @@
 /* Set to 0: max power requires button unlock (both keys pressed for 5 seconds) */
 /* Button unlock feature is only enabled when macro is 0 */
 #ifndef ENABLE_MAX_POWER_UNLOCK
-#define ENABLE_MAX_POWER_UNLOCK    0    /* 1=default unlocked, 0=requires button unlock */
+#define ENABLE_MAX_POWER_UNLOCK    1    /* 1=default unlocked, 0=requires button unlock */
 #endif
 
 

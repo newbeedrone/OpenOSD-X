@@ -2322,7 +2322,7 @@ static void MX_GPIO_Init(void)
 /** Update fan GPIO: ON when 800mW+ or MCU temp >= 90°C, else OFF (active-low: RESET=ON, SET=OFF) */
 static void updateFanControl(void)
 {
-    bool fan_on = (setting()->powerIndex >= POWER_LEVEL_800MW) || (getTemp() >= TEMP_DANGER_DEG);
+    bool fan_on = (setting()->powerIndex >= POWER_LEVEL_400MW) || (getTemp() >= TEMP_DANGER_DEG);
     HAL_GPIO_WritePin(FAN_CTRL_GPIO_Port, FAN_CTRL_Pin, fan_on ? GPIO_PIN_RESET : GPIO_PIN_SET);
 }
 /* USER CODE END 4 */

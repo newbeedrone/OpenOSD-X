@@ -218,17 +218,12 @@ void setVtx(uint16_t freq, uint8_t dB)
         uint8_t vpd_index = VPD_INDEX_100MW;
         setVtx_vpd(freq, bilinearInterpolation(freq, vpd_index));
         renew = true;
-    } else if (dB == 29) {  /* 800mW - use VPD tracking */
+    } else if (dB == 26) {  /* 400mW - use VPD tracking */
         use_fixed_dac = false;
-        uint8_t vpd_index = VPD_INDEX_800MW;
+        uint8_t vpd_index = VPD_INDEX_400MW;
         setVtx_vpd(freq, bilinearInterpolation(freq, vpd_index));
         renew = true;
-    } else if (dB == 34) {  /* MAX/2500mW - use VPD tracking */
-        use_fixed_dac = false;
-        uint8_t vpd_index = VPD_INDEX_MAX;
-        setVtx_vpd(freq, bilinearInterpolation(freq, vpd_index));
-        renew = true;
-    } else if (dB < 10) {  /* Off or invalid - set to 0 */
+    } else if (dB < 10) {  /* Off (0mW) or invalid - set to 0 */
         use_fixed_dac = true;
         fixed_dac_value_mv = 0;
         target_vpd_normal = 0;
