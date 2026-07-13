@@ -6,17 +6,19 @@
 #include "flash.h"
 #include "mspvtx.h"
 #include "setting.h"
+#include "target.h"
 
 
 const openosdx_setting_t openosdx_setting_default = {
-        1,              // version
-        27,             // channel
-        2,              // powerIndex
-        1,              // videoFormat
-        1800,           // vref_init
-        0x3c5e,         // magic
-        0,              // max_power_unlocked (default: locked)
-        0               // pad2    
+        .version = 1,
+        .channel = 27,
+        .powerIndex = POWER_LEVEL_25MW,
+        .videoFormat = 1,
+        .vref_init = 1800,
+        .magic = 0x3c5e,
+        .pad1 = 0,
+        .pad2 = 0,
+        .max_power_unlocked = 0
     };
 
 openosdx_setting_t openosdx_setting  __attribute__((aligned(8)));
@@ -100,4 +102,3 @@ void setting_init(void)
     DEBUG_PRINTF("vtx_init");
     setting_print();
 }
-

@@ -13,7 +13,7 @@
 #define TEMP_WARNING_POWERINDEX VPD_INDEX_MAX   /* warning power (vpd_table.calVpd[TEMP_WARNING_POWERINDEX]) - use MAX */
 #define TEMP_DANGER_DEG         90  /* danger temparature (degree) */
 #define TEMP_DANGER_POWERINDEX  VPD_INDEX_400MW /* danger power (vpd_table.calVpd[TEMP_DANGER_POWERINDEX]) - use 400mW */
-#define VTX_DEFAULT_POWER_INDEX     1    /* Default power level index (25mW) */
+#define VTX_DEFAULT_POWER_INDEX     2    /* MSP uses 1-based indices: level 2 is 25mW */
 #define VTX_TABLE_NEW_POWER_COUNT   4    /* vtx table power count */
 #define SA_NUM_POWER_LEVELS         VTX_TABLE_NEW_POWER_COUNT
 #define CAL_DBM_SIZE 4              /* VPD table size: all power levels use VPD tracking */
@@ -94,4 +94,3 @@ extern uint8_t saPowerLevelsLabel[SA_NUM_POWER_LEVELS * POWER_LEVEL_LABEL_LENGTH
 
 
 #endif
-
