@@ -84,6 +84,11 @@ void setting_init(void)
                 flash_erase((uint32_t)&flash_setting, sizeof(openosdx_setting_t));
                 flash_write((uint32_t)&flash_setting, (uint8_t*)&openosdx_setting, sizeof(openosdx_setting_t));
     }
+
+    // Old firmware may have saved a removed L-band channel.
+    if (openosdx_setting.channel >= getFreqTableSize()) {
+        openosdx_setting.channel = openosdx_setting_default.channel;
+    }
     
     // Check power limit at startup based on ENABLE_MAX_POWER_UNLOCK macro
 #if ENABLE_MAX_POWER_UNLOCK

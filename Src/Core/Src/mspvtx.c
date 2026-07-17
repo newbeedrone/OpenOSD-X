@@ -38,9 +38,9 @@
 
 // Values used in clearVtxTable()
 #define VTX_TABLE_SHOULD_BE_CLEARED 1
-#define VTX_TABLE_NEW_BAND_COUNT    6
+#define VTX_TABLE_NEW_BAND_COUNT    5
 #define CHANNEL_COUNT 8
-#define FREQ_TABLE_SIZE 48
+#define FREQ_TABLE_SIZE 40
 #define IS_FACTORY_BAND                 0
 #define RACE_MODE_POWER                 14 // dBm
 
@@ -98,24 +98,22 @@ typedef struct
     uint8_t powerLevels;
 } mspVtxConfigStruct;
 
-const uint8_t channelFreqLabel[48] = {
+const uint8_t channelFreqLabel[FREQ_TABLE_SIZE] = {
     'B', 'A', 'N', 'D', '_', 'A', ' ', ' ', // A
     'B', 'A', 'N', 'D', '_', 'B', ' ', ' ', // B
     'B', 'A', 'N', 'D', '_', 'E', ' ', ' ', // E
     'F', 'A', 'T', 'S', 'H', 'A', 'R', 'K', // F
     'R', 'A', 'C', 'E', ' ', ' ', ' ', ' ', // R
-    'R', 'A', 'C', 'E', '_', 'L', 'O', 'W', // L
 };
 
-const uint8_t bandLetter[6] = {'A', 'B', 'E', 'F', 'R', 'L'};
+const uint8_t bandLetter[FREQ_TABLE_SIZE / CHANNEL_COUNT] = {'A', 'B', 'E', 'F', 'R'};
 
 uint16_t channelFreqTable[FREQ_TABLE_SIZE] = {
     5865, 5845, 5825, 5805, 5785, 5765, 5745, 5725, // A
     5733, 5752, 5771, 5790, 5809, 5828, 5847, 5866, // B
     5705, 5685, 5665, 5645, 5885, 5905, 5925, 5945, // E
     5740, 5760, 5780, 5800, 5820, 5840, 5860, 5880, // F
-    5658, 5695, 5732, 5769, 5806, 5843, 5880, 5917, // R
-    5333, 5373, 5413, 5453, 5493, 5533, 5573, 5613  // L
+    5658, 5695, 5732, 5769, 5806, 5843, 5880, 5917  // R
 };
 
 uint8_t pitMode = 0;
@@ -343,6 +341,9 @@ void mspvtx_VtxConfig(uint8_t *packet)
 
     uint8_t powerIndex = vtxconfig->power > 0 ? vtxconfig->power - 1 : 0;
     uint8_t channelIndex = ((vtxconfig->band - 1) * 8) + (vtxconfig->channel - 1);
+    if (channelIndex >= getFreqTableSize()) {
+        channelIndex = VTX_DEFAULT_BAND_CHAN_INDEX;
+    }
 
     if (mspState == MSP_STATE_GET_VTX_TABLE_SIZE)
     {

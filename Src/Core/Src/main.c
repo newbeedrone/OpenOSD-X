@@ -929,13 +929,13 @@ void handle_button_press(void)
     // ========== BAND key event handling (controls LED1) ==========
     if(band_event == KEY_EVENT_LONG_PRESS) {
         if(current_mode == MODE_BAND_ADJUST) {
-            // In channel adjustment mode, long press: switch Band Letter (A-L cycle)
+            // In channel adjustment mode, long press: switch Band Letter
 #ifndef TARGET_NOVTX
             uint8_t currentChannel = setting()->channel;
             uint8_t currentBand = currentChannel / 8;  // Each band has 8 channels
             
             // Switch to next band
-            currentBand = (currentBand + 1) % 6;  // Total 6 bands (A,B,E,F,R,L)
+            currentBand = (currentBand + 1) % 5;  // Total 5 bands (A,B,E,F,R)
             
             // Set to first channel of new band
             uint8_t newChannel = currentBand * 8;  // First channel
@@ -946,7 +946,7 @@ void handle_button_press(void)
             setVtx(freq, powerLevel);
             
             // Start blink (LED1 white blink, count corresponds to band letter index)
-            // A=1, B=2, E=3, F=4, R=5, L=6
+            // A=1, B=2, E=3, F=4, R=5
             blink_active = true;
             blink_start_time = current_time;
             blink_count = currentBand + 1;  // Blink count = band letter index + 1
