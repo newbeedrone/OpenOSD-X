@@ -11,7 +11,7 @@ typedef struct
     uint16_t magic;
     uint16_t pad1;
     uint16_t pad2;
-    uint16_t max_power_unlocked;  // Max power unlock flag: 0=unlocked, 0x5A5A=unlocked
+    uint16_t max_power_unlocked;  // 0x5A5A=MAX unlocked; any other value=locked
 } openosdx_setting_t;
 
 

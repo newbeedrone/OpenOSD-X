@@ -9,22 +9,33 @@
 
 
 
-#define TEMP_WARNING_DEG        70  /* warning temperrature (degree) */
-#define TEMP_WARNING_POWERINDEX 1   /* warning power (vpd_table.calVpd[TEMP_WARNING_POWERINDEX]) */
-#define TEMP_DANGER_DEG         90  /* danger temparature (degree) */
-#define TEMP_DANGER_POWERINDEX  0   /* danger power (vpd_table.calVpd[TEMP_DANGER_POWERINDEX]) */
-#define VTX_DEFAULT_POWER_INDEX     1    /* Default power level index (25mW) */
-#define VTX_TABLE_NEW_POWER_COUNT   4    /* vtx table power count */
+#define TEMP_WARNING_DEG        70  /* warning temperature (degrees Celsius) */
+#define TEMP_WARNING_POWERINDEX VPD_INDEX_MAX   /* Reduce from MAX as temperature rises */
+#define TEMP_DANGER_DEG         90  /* danger temperature (degrees Celsius) */
+#define TEMP_DANGER_POWERINDEX  VPD_INDEX_800MW /* Limit to 800mW at danger temperature */
+#define VTX_DEFAULT_POWER_INDEX     1    /* MSP power index is 1-based: 1 = 25mW */
+#define VTX_TABLE_NEW_POWER_COUNT   4    /* Number of VTX power levels */
 #define SA_NUM_POWER_LEVELS         VTX_TABLE_NEW_POWER_COUNT
 #define CAL_DBM_SIZE 4
-#define VREF_MAX_MV  2800           /* max vref voltage */
+#define VREF_MAX_MV  2800           /* Maximum DAC reference voltage in mV */
 
-/* Enable/disable max power unlock feature via button press */
-/* Set to 1: max power (400mW) is allowed by default, no button unlock needed */
-/* Set to 0: max power requires button unlock (both keys pressed for 5 seconds) */
-/* Button unlock feature is only enabled when macro is 0 */
+/* Power level indices */
+#define POWER_LEVEL_25MW     0
+#define POWER_LEVEL_100MW    1
+#define POWER_LEVEL_800MW    2
+#define POWER_LEVEL_MAX      3      /* 2500mW, requires button unlock */
+
+/* VPD table indices */
+#define VPD_INDEX_25MW       0
+#define VPD_INDEX_100MW      1
+#define VPD_INDEX_800MW      2
+#define VPD_INDEX_MAX        3
+
+/* Configure whether the 2500mW power level is available without button unlock. */
+/* Set to 1: 2500mW is available by default. */
+/* Set to 0: both buttons must be held for 5 seconds to unlock 2500mW. */
 #ifndef ENABLE_MAX_POWER_UNLOCK
-#define ENABLE_MAX_POWER_UNLOCK    1    /* 1=default unlocked, 0=requires button unlock */
+#define ENABLE_MAX_POWER_UNLOCK    0
 #endif
 
 

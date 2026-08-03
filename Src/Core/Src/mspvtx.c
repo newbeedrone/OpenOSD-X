@@ -38,9 +38,9 @@
 
 // Values used in clearVtxTable()
 #define VTX_TABLE_SHOULD_BE_CLEARED 1
-#define VTX_TABLE_NEW_BAND_COUNT    6
+#define VTX_TABLE_NEW_BAND_COUNT    5
 #define CHANNEL_COUNT 8
-#define FREQ_TABLE_SIZE 48
+#define FREQ_TABLE_SIZE (VTX_TABLE_NEW_BAND_COUNT * CHANNEL_COUNT)
 #define IS_FACTORY_BAND                 0
 #define RACE_MODE_POWER                 14 // dBm
 
@@ -98,24 +98,22 @@ typedef struct
     uint8_t powerLevels;
 } mspVtxConfigStruct;
 
-const uint8_t channelFreqLabel[48] = {
+const uint8_t channelFreqLabel[FREQ_TABLE_SIZE] = {
     'B', 'A', 'N', 'D', '_', 'A', ' ', ' ', // A
     'B', 'A', 'N', 'D', '_', 'B', ' ', ' ', // B
     'B', 'A', 'N', 'D', '_', 'E', ' ', ' ', // E
     'F', 'A', 'T', 'S', 'H', 'A', 'R', 'K', // F
     'R', 'A', 'C', 'E', ' ', ' ', ' ', ' ', // R
-    'R', 'A', 'C', 'E', '_', 'L', 'O', 'W', // L
 };
 
-const uint8_t bandLetter[6] = {'A', 'B', 'E', 'F', 'R', 'L'};
+const uint8_t bandLetter[VTX_TABLE_NEW_BAND_COUNT] = {'A', 'B', 'E', 'F', 'R'};
 
 uint16_t channelFreqTable[FREQ_TABLE_SIZE] = {
     5865, 5845, 5825, 5805, 5785, 5765, 5745, 5725, // A
     5733, 5752, 5771, 5790, 5809, 5828, 5847, 5866, // B
     5705, 5685, 5665, 5645, 5885, 5905, 5925, 5945, // E
     5740, 5760, 5780, 5800, 5820, 5840, 5860, 5880, // F
-    5658, 5695, 5732, 5769, 5806, 5843, 5880, 5917, // R
-    5333, 5373, 5413, 5453, 5493, 5533, 5573, 5613  // L
+    5658, 5695, 5732, 5769, 5806, 5843, 5880, 5917  // R
 };
 
 uint8_t pitMode = 0;
@@ -132,6 +130,36 @@ static uint8_t checkingIndex = 0; // Current index during VTX table verification
 // Private Function Prototypes (Internal Helpers)
 // ====================================================================================
 static bool verifyBandData(const uint8_t* rxPayload, uint8_t bandIndex);
+static uint8_t sanitizePowerIndex(uint8_t requestedPowerIndex, bool *adjusted);
+
+
+/**
+ * @brief Validates a zero-based power index and applies the MAX unlock policy.
+ * @param requestedPowerIndex Power index requested by the FC.
+ * @param adjusted Set to true when the requested index is replaced.
+ * @return A power index that is safe to use with the power tables.
+ */
+static uint8_t sanitizePowerIndex(uint8_t requestedPowerIndex, bool *adjusted)
+{
+    *adjusted = false;
+
+    if (requestedPowerIndex >= SA_NUM_POWER_LEVELS) {
+        DEBUG_PRINTF("Invalid power index %d, using 25mW", requestedPowerIndex);
+        *adjusted = true;
+        return POWER_LEVEL_25MW;
+    }
+
+#if !ENABLE_MAX_POWER_UNLOCK
+    if (requestedPowerIndex >= POWER_LEVEL_MAX &&
+        setting()->max_power_unlocked != 0x5A5A) {
+        DEBUG_PRINTF("MAX locked, limiting power index %d to 800mW", requestedPowerIndex);
+        *adjusted = true;
+        return POWER_LEVEL_800MW;
+    }
+#endif
+
+    return requestedPowerIndex;
+}
 
 
 uint8_t getFreqTableChannels(void)
@@ -341,38 +369,31 @@ void mspvtx_VtxConfig(uint8_t *packet)
 {
     mspVtxConfigStruct *vtxconfig = (void*)packet;
 
-    uint8_t powerIndex = vtxconfig->power > 0 ? vtxconfig->power - 1 : 0;
+    uint8_t requestedPowerIndex = vtxconfig->power > 0 ? vtxconfig->power - 1 : 0;
+    bool configAdjusted = false;
+    uint8_t powerIndex = sanitizePowerIndex(requestedPowerIndex, &configAdjusted);
     uint8_t channelIndex = ((vtxconfig->band - 1) * 8) + (vtxconfig->channel - 1);
 
     if (mspState == MSP_STATE_GET_VTX_TABLE_SIZE)
     {
         // Temporarily store initial settings.
         pitMode = vtxconfig->pitmode;
-        if (vtxconfig->lowPowerDisarm) {
-            vtxconfig->power = 0;
+        // Betaflight already reports power index 1 while low-power-disarm is active;
+        // lowPowerDisarm describes the FC policy and must not override power here.
+
+        if (channelIndex >= getFreqTableSize()) {
+            DEBUG_PRINTF("FC reported removed channel %d, using default channel %d",
+                         channelIndex, VTX_DEFAULT_BAND_CHAN_INDEX);
+            channelIndex = VTX_DEFAULT_BAND_CHAN_INDEX;
+            configAdjusted = true;
         }
-        
-        // Limit power based on ENABLE_MAX_POWER_UNLOCK macro
-#if ENABLE_MAX_POWER_UNLOCK
-        // When macro is enabled, max power is allowed by default (no unlock needed)
-        // No power limiting needed
-#else
-        // When macro is disabled, max power requires button unlock
-        bool maxPowerUnlocked = (setting()->max_power_unlocked == 0x5A5A);
-        if (!maxPowerUnlocked && powerIndex >= 3) {
-            powerIndex = 2;  // Limit to 100mW
-            DEBUG_PRINTF("Max power locked, limiting to index 2 (100mW)");
-        }
-#endif
-        
+
         setting()->powerIndex = powerIndex;
         setting()->channel = channelIndex;
-        
-        // Apply power and frequency settings immediately
-        if (channelIndex < getFreqTableSize()) {
-            setVtx(channelFreqTable[channelIndex], saPowerLevelsLut[powerIndex]);
-            DEBUG_PRINTF("Applied initial VTX settings: channel=%d, power=%d", channelIndex, powerIndex);
-        }
+
+        // Both indices have been validated before they are used as array indices.
+        setVtx(channelFreqTable[channelIndex], saPowerLevelsLut[powerIndex]);
+        DEBUG_PRINTF("Applied initial VTX settings: channel=%d, power=%d", channelIndex, powerIndex);
 
         // Check if the FC's VTX table size matches OpenVTx's definition.
         if (vtxconfig->bands == getFreqTableBands() &&
@@ -383,6 +404,11 @@ void mspvtx_VtxConfig(uint8_t *packet)
             mspState = CHECK_POWER_LEVELS;
             DEBUG_PRINTF("mspState:%s", mspStaetString[(uint8_t)mspState]);
             nextFlightControllerQueryTime = HAL_GetTick();
+
+            // Keep the FC in sync when its initial request was limited or invalid.
+            if (configAdjusted) {
+                sendCurrentVtxConfig();
+            }
         } else {
             // If sizes mismatch, clear and reconfigure the FC's table.
             clearVtxTable();
@@ -393,27 +419,7 @@ void mspvtx_VtxConfig(uint8_t *packet)
         // Received a settings change from the FC during normal operation.
         pitMode = vtxconfig->pitmode;
 
-        // Betaflight power levels are 1-based, adjust for 0-based array.
-        uint8_t powerIndex = vtxconfig->power > 0 ? vtxconfig->power - 1 : 0;
-        
-        // Limit power based on ENABLE_MAX_POWER_UNLOCK macro
-#if ENABLE_MAX_POWER_UNLOCK
-        // When macro is enabled, max power is allowed by default (no unlock needed)
-        bool maxPowerUnlocked = true;  // Always allow max power when feature is enabled
-        bool powerLimited = false;
-#else
-        // When macro is disabled, max power requires button unlock
-        bool maxPowerUnlocked = (setting()->max_power_unlocked == 0x5A5A);
-        bool powerLimited = false;
-        if (!maxPowerUnlocked && powerIndex >= 3) {
-            powerIndex = 2;  // Limit to 100mW
-            powerLimited = true;
-            DEBUG_PRINTF("Max power locked, limiting to index 2 (100mW) (MSP request from FC: %d)", vtxconfig->power > 0 ? vtxconfig->power - 1 : 0);
-        }
-#endif
-        
-        // Set power before changing frequency to avoid interference on other frequencies.
-        uint8_t channelIndex = ((vtxconfig->band - 1) * 8) + (vtxconfig->channel - 1);
+        // Apply the validated channel and power settings together.
         if (channelIndex < getFreqTableSize()) {
             setting()->powerIndex = powerIndex;
             setting()->channel = channelIndex;
@@ -422,10 +428,13 @@ void mspvtx_VtxConfig(uint8_t *packet)
             // Update LED display immediately
             updateLedDisplay();
             
-            // If power was limited, need to send actual setting back to FC
-            if (powerLimited) {
+            // Keep the FC in sync when its requested power was limited or invalid.
+            if (configAdjusted) {
                 sendCurrentVtxConfig();
             }
+        } else {
+            DEBUG_PRINTF("Invalid channel index %d, keeping current VTX settings", channelIndex);
+            sendCurrentVtxConfig();
         }
     }
 }

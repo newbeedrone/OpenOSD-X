@@ -479,11 +479,11 @@ void sync_proc(void)
             }
             break;
         case STATE_TUNE_PULSE_LEVEL_HIGH:
-            if (sync_count < SYNC_COUNT_5MS || pluse_level_high == 2500){    // max2500mv
+            if (sync_count < SYNC_COUNT_5MS || pluse_level_high == 2500){    // Maximum video sync level: 2500mV
                 state = STATE_VSYNC_WAIT;
                 DEBUG_PRINTF("state:STATE_VSYNC_WAIT)");
                 HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_2, DAC_ALIGN_12B_R, (0xfff * ((pluse_level_high + pluse_level_low)/2))/3300);
-                HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_1, DAC_ALIGN_12B_R, (0xfff * ((pluse_level_high/4) + 100)/3300));    // black level -12dB=1/4 +50mv       todo: auto level tune
+                HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_1, DAC_ALIGN_12B_R, (0xfff * ((pluse_level_high/4) + 100)/3300));    // Black level: sync level / 4 + 100mV; TODO: auto-tune level
             }else{
                 pluse_level_high += 50;
                 HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_2, DAC_ALIGN_12B_R, (0xfff*pluse_level_high)/3300);
@@ -593,7 +593,7 @@ typedef enum {
 #define LED_BLINK_ON_TIME   100     // Blink on time 100ms
 #define LED_BLINK_OFF_TIME  100     // Blink off time 100ms
 
-// LED colors for power levels (0:0mW(off), 1:25mW, 2:100mW, 3:400mW(max))
+// LED colors by power index: 0=25mW, 1=100mW, 2=800mW, 3=MAX (2500mW)
 const LED_STATE power_led_colors[4] = {LED_WHITE, LED_BLUE128, LED_GREEN128, LED_RED128};
 
 // LED colors for channels (1-8)
@@ -887,11 +887,11 @@ void handle_button_press(void)
         // Check max power level based on ENABLE_MAX_POWER_UNLOCK macro
 #if ENABLE_MAX_POWER_UNLOCK
         // When macro is enabled, max power is allowed by default (no unlock needed)
-        uint8_t effectiveMaxLevel = maxPowerLevels;  // Allow all power levels including max (400mW)
+        uint8_t effectiveMaxLevel = maxPowerLevels;  // Allow all power levels including MAX
 #else
         // When macro is disabled, max power requires button unlock
         bool maxPowerUnlocked = (setting()->max_power_unlocked == 0x5A5A);
-        uint8_t effectiveMaxLevel = maxPowerUnlocked ? maxPowerLevels : 3;  // Max index 2 (0,1,2) when locked, index 3 (400mW) requires unlock
+        uint8_t effectiveMaxLevel = maxPowerUnlocked ? maxPowerLevels : POWER_LEVEL_MAX;
 #endif
         
         // Switch to next power level (cycle)
@@ -929,13 +929,13 @@ void handle_button_press(void)
     // ========== BAND key event handling (controls LED1) ==========
     if(band_event == KEY_EVENT_LONG_PRESS) {
         if(current_mode == MODE_BAND_ADJUST) {
-            // In channel adjustment mode, long press: switch Band Letter (A-L cycle)
+            // In channel adjustment mode, long press: switch band (A/B/E/F/R cycle)
 #ifndef TARGET_NOVTX
             uint8_t currentChannel = setting()->channel;
             uint8_t currentBand = currentChannel / 8;  // Each band has 8 channels
             
             // Switch to next band
-            currentBand = (currentBand + 1) % 6;  // Total 6 bands (A,B,E,F,R,L)
+            currentBand = (currentBand + 1) % (getFreqTableSize() / 8);
             
             // Set to first channel of new band
             uint8_t newChannel = currentBand * 8;  // First channel
@@ -946,7 +946,7 @@ void handle_button_press(void)
             setVtx(freq, powerLevel);
             
             // Start blink (LED1 white blink, count corresponds to band letter index)
-            // A=1, B=2, E=3, F=4, R=5, L=6
+            // A=1, B=2, E=3, F=4, R=5
             blink_active = true;
             blink_start_time = current_time;
             blink_count = currentBand + 1;  // Blink count = band letter index + 1

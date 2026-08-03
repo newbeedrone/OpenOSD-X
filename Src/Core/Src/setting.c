@@ -6,17 +6,19 @@
 #include "flash.h"
 #include "mspvtx.h"
 #include "setting.h"
+#include "target.h"
 
 
 const openosdx_setting_t openosdx_setting_default = {
         1,              // version
         27,             // channel
-        2,              // powerIndex
+        POWER_LEVEL_25MW, // powerIndex (25mW)
         1,              // videoFormat
         1800,           // vref_init
         0x3c5e,         // magic
-        0,              // max_power_unlocked (default: locked)
-        0               // pad2    
+        0,              // pad1
+        0,              // pad2
+        0               // max_power_unlocked (default: locked)
     };
 
 openosdx_setting_t openosdx_setting  __attribute__((aligned(8)));
@@ -82,6 +84,19 @@ void setting_init(void)
                 flash_erase((uint32_t)&flash_setting, sizeof(openosdx_setting_t));
                 flash_write((uint32_t)&flash_setting, (uint8_t*)&openosdx_setting, sizeof(openosdx_setting_t));
     }
+
+    // Validate settings before using them as table indices.
+    if (openosdx_setting.channel >= getFreqTableSize()) {
+        DEBUG_PRINTF("Invalid channel %d, restoring default channel %d",
+                     openosdx_setting.channel, openosdx_setting_default.channel);
+        openosdx_setting.channel = openosdx_setting_default.channel;
+    }
+
+    if (openosdx_setting.powerIndex >= SA_NUM_POWER_LEVELS) {
+        DEBUG_PRINTF("Invalid powerIndex %d, restoring default powerIndex %d",
+                     openosdx_setting.powerIndex, openosdx_setting_default.powerIndex);
+        openosdx_setting.powerIndex = openosdx_setting_default.powerIndex;
+    }
     
     // Check power limit at startup based on ENABLE_MAX_POWER_UNLOCK macro
 #if ENABLE_MAX_POWER_UNLOCK
@@ -90,9 +105,9 @@ void setting_init(void)
 #else
     // When macro is disabled, max power requires button unlock
     bool maxPowerUnlocked = (openosdx_setting.max_power_unlocked == 0x5A5A);
-    if (!maxPowerUnlocked && openosdx_setting.powerIndex >= 3) {
+    if (!maxPowerUnlocked && openosdx_setting.powerIndex >= POWER_LEVEL_MAX) {
         DEBUG_PRINTF("Max power locked, forcing powerIndex from %d to 2", openosdx_setting.powerIndex);
-        openosdx_setting.powerIndex = 2;  // Force to 100mW
+        openosdx_setting.powerIndex = POWER_LEVEL_800MW;
         // No immediate flash write, wait for setting_update to auto-save
     }
 #endif
@@ -100,4 +115,3 @@ void setting_init(void)
     DEBUG_PRINTF("vtx_init");
     setting_print();
 }
-
