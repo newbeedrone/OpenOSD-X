@@ -17,7 +17,7 @@
 #define VTX_TABLE_NEW_POWER_COUNT   4    /* vtx table power count */
 #define SA_NUM_POWER_LEVELS         VTX_TABLE_NEW_POWER_COUNT
 #define CAL_DBM_SIZE 4
-#define VREF_MAX_MV  2850           /* max vref voltage */
+#define VREF_MAX_MV  2800           /* max vref voltage */
 
 /* Enable/disable max power unlock feature via button press */
 /* Set to 1: max power (400mW) is allowed by default, no button unlock needed */
@@ -42,4 +42,3 @@ extern uint8_t saPowerLevelsLabel[SA_NUM_POWER_LEVELS * POWER_LEVEL_LABEL_LENGTH
 
 
 #endif
-
