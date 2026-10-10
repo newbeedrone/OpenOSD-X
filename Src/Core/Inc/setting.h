@@ -7,7 +7,7 @@ typedef struct
     uint16_t channel;
     uint16_t powerIndex;
     uint16_t videoFormat;
-    uint16_t vref_init;
+    uint16_t vref_init;  /* Persisted in legacy 3.3 V units for compatibility. */
     uint16_t magic;
     uint16_t pad1;
     uint16_t pad2;

@@ -454,7 +454,7 @@ void sync_proc(void)
                 videosignal_gen_stop();
                 pluse_level_high = pluse_level_low +50;
                 pluse_level_low -= 50;
-                HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_2, DAC_ALIGN_12B_R, (0xfff*pluse_level_low)/3300);
+                HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_2, DAC_ALIGN_12B_R, (0xfff*pluse_level_low)/ANALOG_REFERENCE_MV);
                 state = STATE_TUNE_PULSE_LEVEL_LOW;
                 DEBUG_PRINTF("state:STATE_TUNE_PULSE_LEVEL_LOW");
             }else{
@@ -465,28 +465,28 @@ void sync_proc(void)
                 }
                 pluse_level_low = (pluse_level_low + 250) % (2500);
                 pluse_level_low = (pluse_level_low == 0) ? 250 : pluse_level_low;
-                HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_2, DAC_ALIGN_12B_R, (0xfff*pluse_level_low)/3300);
+                HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_2, DAC_ALIGN_12B_R, (0xfff*pluse_level_low)/ANALOG_REFERENCE_MV);
             }
             break;
         case STATE_TUNE_PULSE_LEVEL_LOW:
             if (sync_count < SYNC_COUNT_5MS || pluse_level_low == 0){    // min 0mv
                 state = STATE_TUNE_PULSE_LEVEL_HIGH;
                 DEBUG_PRINTF("state:STATE_TUNE_PULSE_LEVEL_HIGH");
-                HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_2, DAC_ALIGN_12B_R, (0xfff*pluse_level_high)/3300);
+                HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_2, DAC_ALIGN_12B_R, (0xfff*pluse_level_high)/ANALOG_REFERENCE_MV);
             }else{
                 pluse_level_low -= 50;
-                HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_2, DAC_ALIGN_12B_R, (0xfff*pluse_level_low)/3300);
+                HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_2, DAC_ALIGN_12B_R, (0xfff*pluse_level_low)/ANALOG_REFERENCE_MV);
             }
             break;
         case STATE_TUNE_PULSE_LEVEL_HIGH:
             if (sync_count < SYNC_COUNT_5MS || pluse_level_high == 2500){    // Maximum video sync level: 2500mV
                 state = STATE_VSYNC_WAIT;
                 DEBUG_PRINTF("state:STATE_VSYNC_WAIT)");
-                HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_2, DAC_ALIGN_12B_R, (0xfff * ((pluse_level_high + pluse_level_low)/2))/3300);
-                HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_1, DAC_ALIGN_12B_R, (0xfff * ((pluse_level_high/4) + 100)/3300));    // Black level: sync level / 4 + 100mV; TODO: auto-tune level
+                HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_2, DAC_ALIGN_12B_R, (0xfff * ((pluse_level_high + pluse_level_low)/2))/ANALOG_REFERENCE_MV);
+                HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_1, DAC_ALIGN_12B_R, (0xfff * ((pluse_level_high/4) + 100)/ANALOG_REFERENCE_MV));    // Black level: sync level / 4 + 100mV; TODO: auto-tune level
             }else{
                 pluse_level_high += 50;
-                HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_2, DAC_ALIGN_12B_R, (0xfff*pluse_level_high)/3300);
+                HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_2, DAC_ALIGN_12B_R, (0xfff*pluse_level_high)/ANALOG_REFERENCE_MV);
             }
             break;
         case STATE_VSYNC_WAIT:
@@ -510,7 +510,7 @@ void sync_proc(void)
             }
             break;
         case STATE_DISABLE:
-            HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_2, DAC_ALIGN_12B_R, (0xfff*pluse_level_high)/3300);
+            HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_2, DAC_ALIGN_12B_R, (0xfff*pluse_level_high)/ANALOG_REFERENCE_MV);
             break;
     }
     sync_count = 0;
@@ -1217,12 +1217,12 @@ int main(void)
     HAL_DAC_Init(&hdac1);
     HAL_DAC_MspInit(&hdac1);
     HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
-    HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, (0xfff*1500)/3300);    // WHITE:1.5v (Foxeer OSD is 1.5V)
+    HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, (0xfff*1500)/ANALOG_REFERENCE_MV);    // WHITE:1.5v (Foxeer OSD is 1.5V)
 
     HAL_DAC_Init(&hdac3);
     HAL_DAC_MspInit(&hdac3);
     HAL_DAC_Start(&hdac3, DAC_CHANNEL_1);
-    HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_1, DAC_ALIGN_12B_R, (0xfff*286)/3300);    // 286mVv
+    HAL_DAC_SetValue(&hdac3, DAC_CHANNEL_1, DAC_ALIGN_12B_R, (0xfff*286)/ANALOG_REFERENCE_MV);    // 286mVv
 
     HAL_DAC_MspInit(&hdac3);
     HAL_DAC_Start(&hdac3, DAC_CHANNEL_2);

@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 
-#define CAL_FREQ_SIZE 9
+#define CAL_FREQ_SIZE 8
 #define POWER_LEVEL_LABEL_LENGTH    3
 
 
@@ -18,6 +18,12 @@
 #define SA_NUM_POWER_LEVELS         VTX_TABLE_NEW_POWER_COUNT
 #define CAL_DBM_SIZE 4
 #define VREF_MAX_MV  2800           /* Maximum DAC reference voltage in mV */
+
+/* Board VDDA/VREF+: shared by all ADC and DAC voltage conversions. */
+#define ANALOG_REFERENCE_MV        3600U
+#define LEGACY_ANALOG_REFERENCE_MV 3300U
+/* 12-bit ADC with 16x oversampling and no right shift. */
+#define VPD_ADC_FULL_SCALE         (4095U * 16U)
 
 /* Power level indices */
 #define POWER_LEVEL_25MW     0
@@ -40,11 +46,19 @@
 
 
 #ifndef TARGET_NOVTX
+typedef struct dac_voltage_range_def {
+    uint16_t min_mv;
+    uint16_t max_mv;
+} dac_voltage_range_t;
+
+/* VPD2 identifies the eight-frequency table in actual 3.6 V millivolts.
+ * The old nine-frequency VPD/3.3 V Flash table has a different layout. */
 typedef struct vpd_table_def {
     char magic[4];
     uint16_t calFreqs[CAL_FREQ_SIZE];
     uint8_t calDBm[CAL_DBM_SIZE];
-    uint16_t calVpd[CAL_DBM_SIZE][CAL_FREQ_SIZE];
+    uint16_t calVpd[CAL_DBM_SIZE][CAL_FREQ_SIZE]; /* Actual VPD mV. */
+    dac_voltage_range_t calDacMv[CAL_DBM_SIZE][CAL_FREQ_SIZE];
 } vpd_table_t;
 extern const vpd_table_t vpd_table;
 extern uint8_t saPowerLevelsLut[SA_NUM_POWER_LEVELS];

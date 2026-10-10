@@ -97,7 +97,7 @@ bool procTemp(void)
             if (LL_ADC_IsActiveFlag_EOC(ADC1) == 1){
                 LL_ADC_ClearFlag_EOC(ADC1);
                 uint32_t val = (LL_ADC_REG_ReadConversionData12(ADC1)) >> 4;
-                temp_val = __HAL_ADC_CALC_TEMPERATURE(3300, val, ADC_RESOLUTION_12B);
+                temp_val = __HAL_ADC_CALC_TEMPERATURE(ANALOG_REFERENCE_MV, val, ADC_RESOLUTION_12B);
                 DEBUG_PRINTF("temp:%d", temp_val);
                 temp_state = TEMP_STATE_DISABLE;
                 LL_ADC_Disable(ADC1);

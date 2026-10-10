@@ -1,6 +1,7 @@
 #ifndef __VTX_H
 #define __VTX_H
 
+/* VPD targets and voltage getters use actual mV at the 3.6 V reference. */
 void setVtx_vpd(uint16_t freq, uint16_t vpd);
 void setVtx(uint16_t freq, uint8_t dB);
 void initVtx(void);
